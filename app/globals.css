@@ -1,0 +1,250 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+/* Dark mode follows the system unless the user picks a theme (html[data-theme]). */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-serif-display), 'Tiempos Headline', Georgia, 'Times New Roman', serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-border: var(--primary-border);
+  --color-primary-ink: var(--primary-ink);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle: var(--subtle);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  /* "navy" = the inverse (dark) surface used for banners, the exam bar and code chrome */
+  --color-navy: var(--navy);
+  --color-navy-2: var(--navy-2);
+  --color-brand: var(--brand);
+  --color-chart: var(--chart);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-border: var(--success-border);
+  --color-success-ink: var(--success-ink);
+  --color-success-hover: var(--success-hover);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-border: var(--warning-border);
+  --color-warning-ink: var(--warning-ink);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-border: var(--danger-border);
+  --color-danger-ink: var(--danger-ink);
+  --color-danger-hover: var(--danger-hover);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
+  --color-violet-border: var(--violet-border);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+/*
+ * Warm editorial theme (cream canvas, warm ink, coral accent) in light,
+ * warm charcoal in dark. Values live here once; components only use tokens.
+ */
+:root {
+  color-scheme: light;
+  --radius: 0.625rem;
+
+  --background: #faf9f5;
+  --foreground: #141413;
+  --card: #ffffff;
+  --card-foreground: #141413;
+  --popover: #ffffff;
+  --popover-foreground: #141413;
+
+  --primary: #c6613f;
+  --primary-hover: #a9583e;
+  --primary-soft: #f7ebe5;
+  --primary-border: #eccbbd;
+  --primary-ink: #97462b;
+  --primary-foreground: #ffffff;
+
+  --secondary: #efe9de;
+  --secondary-hover: #e8e0d2;
+  --secondary-foreground: #141413;
+  --muted: #f5f0e8;
+  --muted-foreground: #6c6a64;
+  --subtle: #8e8b82;
+  --accent: #efe9de;
+  --accent-foreground: #141413;
+
+  --border: #e6dfd8;
+  --border-strong: #d4cbbd;
+  --input: #dcd4c7;
+  --ring: #c6613f;
+
+  --navy: #181715;
+  --navy-2: #252320;
+  --brand: #e8a55a;
+  --chart: #c6613f; /* validated: dataviz checks, light surface */
+
+  --sidebar: #f3efe6;
+  --sidebar-foreground: #3d3d3a;
+  --sidebar-muted: #8e8b82;
+  --sidebar-border: #e6dfd8;
+  --sidebar-hover: #ebe5d9;
+  --sidebar-active: #e4dccd;
+
+  --success: #2f8a4a;
+  --success-soft: #eaf4ea;
+  --success-border: #c8e2cb;
+  --success-ink: #256b3a;
+  --success-hover: #25703c;
+  --warning: #b7791f;
+  --warning-soft: #fbf1dc;
+  --warning-border: #ecd6a6;
+  --warning-ink: #8a5a12;
+  --danger: #c64545;
+  --danger-soft: #fbe9e7;
+  --danger-border: #f0c7c2;
+  --danger-ink: #a33434;
+  --danger-hover: #a83a3a;
+  --destructive: #c64545;
+  --violet: #2f8a78;
+  --violet-soft: #e4f2ee;
+  --violet-border: #bfe0d7;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --background: #262624;
+  --foreground: #faf9f5;
+  --card: #30302e;
+  --card-foreground: #faf9f5;
+  --popover: #353532;
+  --popover-foreground: #faf9f5;
+  --primary: #d97757;
+  --primary-hover: #e38a6c;
+  --primary-soft: #3d2c25;
+  --primary-border: #6b4232;
+  --primary-ink: #f0ab91;
+  --primary-foreground: #ffffff;
+  --secondary: #3a3936;
+  --secondary-hover: #45443f;
+  --secondary-foreground: #faf9f5;
+  --muted: #383733;
+  --muted-foreground: #b7b5a9;
+  --subtle: #8b8a82;
+  --accent: #3a3936;
+  --accent-foreground: #faf9f5;
+  --border: #3e3d38;
+  --border-strong: #52504a;
+  --input: #4a4843;
+  --ring: #d97757;
+  --navy: #1a1918;
+  --navy-2: #232220;
+  --brand: #e8a55a;
+  --chart: #d27052; /* validated: dataviz checks, dark surface */
+  --sidebar: #1f1e1d;
+  --sidebar-foreground: #d8d6cc;
+  --sidebar-muted: #8b8a82;
+  --sidebar-border: #33322f;
+  --sidebar-hover: #2a2927;
+  --sidebar-active: #353431;
+  --success: #6cc485;
+  --success-soft: #1f3024;
+  --success-border: #2e4a35;
+  --success-ink: #93d9a6;
+  --success-hover: #5ab073;
+  --warning: #e2b34a;
+  --warning-soft: #3a3020;
+  --warning-border: #5a4a2a;
+  --warning-ink: #eccb7a;
+  --danger: #e57373;
+  --danger-soft: #3d2524;
+  --danger-border: #5e3634;
+  --danger-ink: #f3a5a5;
+  --danger-hover: #d45f5f;
+  --destructive: #e57373;
+  --violet: #6fcab8;
+  --violet-soft: #1e3430;
+  --violet-border: #2f524b;
+}
+
+@layer base {
+  html {
+    background: var(--background);
+  }
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+  /* Display headings use the serif, at regular-medium weight with slight negative tracking. */
+  h1 {
+    font-family: var(--font-serif);
+    letter-spacing: -0.015em;
+  }
+  /* Large monitors: scale the whole interface up a little instead of leaving it tiny. */
+  @media (min-width: 2200px) {
+    html { font-size: 17px; }
+  }
+  @media (min-width: 3000px) {
+    html { font-size: 19px; }
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 25%, transparent);
+  }
+}
+
+@layer components {
+  /* Reusable pieces that are awkward as React components */
+  .table-base {
+    @apply w-full text-left text-sm;
+  }
+  .table-base thead th {
+    @apply border-b border-border bg-muted/60 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground;
+  }
+  .table-base tbody td {
+    @apply border-b border-border px-4 py-3 align-middle;
+  }
+  .table-base tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .table-base tbody tr {
+    @apply transition-colors hover:bg-muted/40;
+  }
+  .prose-statement {
+    @apply whitespace-pre-wrap text-[15px] leading-7 text-foreground;
+  }
+  .kbd {
+    @apply rounded border border-border-strong bg-card px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground;
+  }
+}

@@ -1,0 +1,3 @@
+DejaVu fonts (used for PDF export of question papers).
+Copyright (c) 2003 Bitstream, Inc. (Bitstream Vera) and DejaVu changes are in the public domain.
+Licensed under the Bitstream Vera / DejaVu font license, which permits redistribution: https://dejavu-fonts.github.io/License.html
