@@ -5,7 +5,8 @@ import { normalizeQuestion, type QuestionInput } from '@/lib/questions'
 
 export const maxDuration = 180
 
-const MAX_PDF_BYTES = 10 * 1024 * 1024
+// Vercel caps request bodies at 4.5 MB, so uploads must stay under that.
+const MAX_PDF_BYTES = 4 * 1024 * 1024
 
 const mcqSchema = {
   type: 'OBJECT',
@@ -101,7 +102,7 @@ async function readFields(request: Request) {
     const file = form.get('pdf')
     const pdf = file instanceof File && file.size > 0 ? file : null
     if (pdf && pdf.type !== 'application/pdf') throw new HttpError(400, 'Only PDF files are supported.')
-    if (pdf && pdf.size > MAX_PDF_BYTES) throw new HttpError(413, 'The PDF is larger than 10 MB.')
+    if (pdf && pdf.size > MAX_PDF_BYTES) throw new HttpError(413, 'The PDF is larger than 4 MB. Split it or compress it and try again.')
     const text = (name: string) => (form.has(name) ? String(form.get(name) ?? '').trim() : undefined)
     return { topic: text('topic') ?? '', sourceText: text('sourceText') ?? '', count: text('count'), mcqCount: text('mcqCount'), codingCount: text('codingCount'), difficulty: text('difficulty') ?? '', pdf }
   }

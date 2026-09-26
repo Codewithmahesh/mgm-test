@@ -185,8 +185,8 @@ function AiGenerator({ defaults, onResult }: { defaults?: { mcq: number; coding:
           className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border-strong bg-muted/40 px-4 py-8 text-center hover:border-primary hover:bg-primary-soft/40">
           <Upload className="size-5 text-primary" />
           <span className="mt-2 text-sm font-medium">{pdf ? pdf.name : 'Click or drop a PDF here'}</span>
-          <span className="mt-0.5 text-xs text-muted-foreground">{pdf ? `${(pdf.size / 1024 / 1024).toFixed(1)} MB · click to replace` : 'Lecture notes, a chapter, a syllabus… up to 10 MB'}</span>
-          <input ref={fileInput} type="file" accept="application/pdf" className="sr-only" onChange={e => { const file = e.target.files?.[0]; if (file) { if (file.size > 10 * 1024 * 1024) setError('That PDF is larger than 10 MB.'); else setPdf(file) } e.target.value = '' }} />
+          <span className="mt-0.5 text-xs text-muted-foreground">{pdf ? `${(pdf.size / 1024 / 1024).toFixed(1)} MB · click to replace` : 'Lecture notes, a chapter, a syllabus… up to 4 MB'}</span>
+          <input ref={fileInput} type="file" accept="application/pdf" className="sr-only" onChange={e => { const file = e.target.files?.[0]; if (file) { if (file.size > 4 * 1024 * 1024) setError('That PDF is larger than 4 MB. Split it or compress it first.'); else setPdf(file) } e.target.value = '' }} />
         </button>
       )}
       {mode === 'text' && <Field label="Content"><Textarea rows={7} value={text} onChange={e => setText(e.target.value)} placeholder="Paste lecture notes, a textbook section or a lesson plan…" /></Field>}
