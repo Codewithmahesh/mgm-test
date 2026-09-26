@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { HttpError, handler, readJson, requireTeacher } from '@/lib/auth'
 import { refreshPool, submitAttempt } from '@/lib/exams'
-import { Attempt, Question, isObjectId } from '@/lib/models'
+import { Attempt, JoinRequest, Question, isObjectId } from '@/lib/models'
 import { copyOf, serializeQuestion } from '@/lib/questions'
 import { findTeacherRoom, roomSettings, withRoomStats } from '@/lib/rooms'
 
@@ -72,7 +72,7 @@ export const POST = handler(async (request: Request, context: Context) => {
 export const DELETE = handler(async (_request: Request, context: Context) => {
   const teacher = await requireTeacher()
   const room = await findTeacherRoom(teacher._id, (await context.params).id)
-  await Promise.all([Question.updateMany({ room: room._id }, { $set: { room: null } }), Attempt.deleteMany({ room: room._id })])
+  await Promise.all([Question.updateMany({ room: room._id }, { $set: { room: null } }), Attempt.deleteMany({ room: room._id }), JoinRequest.deleteMany({ room: room._id })])
   await room.deleteOne()
   return NextResponse.json({ ok: true })
 })

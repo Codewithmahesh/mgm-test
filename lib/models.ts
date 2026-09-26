@@ -120,6 +120,8 @@ const examRoomSchema = new Schema(
     blockCopyPaste: { type: Boolean, default: true },
     // Auto-submit once a student reaches this many violations (0 = never).
     maxViolations: { type: Number, default: 0, min: 0 },
+    // Waiting room: students request to join and faculty admit them before they can start.
+    requireApproval: { type: Boolean, default: true },
     // Shuffled question ids, dealt round-robin so every question gets used evenly.
     pool: { type: [Schema.Types.ObjectId], default: [] },
     dealt: { type: Number, default: 0 },
@@ -178,6 +180,26 @@ attemptSchema.index({ room: 1, studentEmail: 1 }, { unique: true, partialFilterE
 attemptSchema.index({ room: 1, status: 1 })
 attemptSchema.index({ student: 1, createdAt: -1 })
 
+export const JOIN_STATUSES = ['pending', 'admitted', 'rejected'] as const
+
+// A student's request to enter a room's waiting room, decided by the faculty.
+const joinRequestSchema = new Schema(
+  {
+    room: { type: Schema.Types.ObjectId, ref: 'ExamRoom', required: true },
+    student: { type: Schema.Types.ObjectId, ref: 'Student' },
+    studentEmail: { type: String, required: true, lowercase: true, trim: true },
+    studentName: { type: String, default: '' },
+    rollNumber: { type: String, default: '' },
+    className: { type: String, default: '' },
+    status: { type: String, enum: JOIN_STATUSES, default: 'pending' },
+    requestedAt: { type: Date, default: Date.now },
+    decidedAt: Date,
+  },
+  { timestamps: true },
+)
+joinRequestSchema.index({ room: 1, studentEmail: 1 }, { unique: true })
+joinRequestSchema.index({ room: 1, status: 1, requestedAt: 1 })
+
 const passwordResetSchema = new Schema({
   _id: { type: String },
   role: { type: String, default: 'teacher' },
@@ -207,6 +229,7 @@ export const Question = model('Question', questionSchema)
 export const ExamRoom = model('ExamRoom', examRoomSchema)
 export const Attempt = model('Attempt', attemptSchema)
 export const PasswordReset = model('PasswordReset', passwordResetSchema)
+export const JoinRequest = model('JoinRequest', joinRequestSchema)
 export const RateLimit = model('RateLimit', rateLimitSchema)
 
 export type QuestionDoc = InferSchemaType<typeof questionSchema> & { _id: Types.ObjectId }

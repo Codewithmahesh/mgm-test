@@ -24,6 +24,7 @@ export type RoomFormValues = {
   requireFullscreen: boolean
   blockCopyPaste: boolean
   maxViolations: string
+  requireApproval: boolean
 }
 
 const DEFAULT_INSTRUCTIONS = [
@@ -34,7 +35,7 @@ const DEFAULT_INSTRUCTIONS = [
 ].join('\n')
 
 export function emptyRoomValues(): RoomFormValues {
-  return { title: '', description: '', instructions: DEFAULT_INSTRUCTIONS, durationMinutes: '60', questionsPerStudent: '20', codingQuestions: '0', marksPerQuestion: '1', negativeMarks: '0', codingMarks: '10', startsAt: '', showResults: 'after_end', allowedClassrooms: [], requireFullscreen: true, blockCopyPaste: true, maxViolations: '0' }
+  return { title: '', description: '', instructions: DEFAULT_INSTRUCTIONS, durationMinutes: '60', questionsPerStudent: '20', codingQuestions: '0', marksPerQuestion: '1', negativeMarks: '0', codingMarks: '10', startsAt: '', showResults: 'after_end', allowedClassrooms: [], requireFullscreen: true, blockCopyPaste: true, maxViolations: '0', requireApproval: true }
 }
 
 function toLocalInput(value: string | null) {
@@ -49,7 +50,7 @@ export function roomToValues(room: Room): RoomFormValues {
     durationMinutes: String(room.durationMinutes), questionsPerStudent: String(room.questionsPerStudent), codingQuestions: String(room.codingQuestions),
     marksPerQuestion: String(room.marksPerQuestion), negativeMarks: String(room.negativeMarks), codingMarks: String(room.codingMarks),
     startsAt: toLocalInput(room.startsAt), showResults: room.showResults, allowedClassrooms: room.allowedClassrooms,
-    requireFullscreen: room.requireFullscreen, blockCopyPaste: room.blockCopyPaste, maxViolations: String(room.maxViolations),
+    requireFullscreen: room.requireFullscreen, blockCopyPaste: room.blockCopyPaste, maxViolations: String(room.maxViolations), requireApproval: room.requireApproval,
   }
 }
 
@@ -113,6 +114,7 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
         <Card>
           <CardHeader title="Proctoring" description="Every rule break is recorded and shown to you as flags on the student's result." />
           <div className="flex flex-col gap-4 p-5">
+            <Toggle checked={values.requireApproval} onChange={value => set('requireApproval', value)} title="Waiting room — admit students yourself" text="Students request to join with the room code and wait until you admit them from the Participants tab (one by one or all at once)." />
             <Toggle checked={values.requireFullscreen} onChange={value => set('requireFullscreen', value)} title="Require fullscreen" text="Students must stay in fullscreen; leaving it pauses the exam screen and is flagged." />
             <Toggle checked={values.blockCopyPaste} onChange={value => set('blockCopyPaste', value)} title="Block copy, paste and right-click" text="Stops copying questions out and pasting answers in. Students can still move their own code inside the editor." />
             <Field label="Auto-submit after this many violations" htmlFor="maxViolations" hint="Tab switches, leaving fullscreen, pasting, developer-tool shortcuts and opening a second device each count. 0 = never auto-submit (flag only)." className="max-w-sm">

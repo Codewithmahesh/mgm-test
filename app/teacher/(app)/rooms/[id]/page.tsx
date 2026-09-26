@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { CirclePause, Clock3, Download, MoreHorizontal, Play, RotateCcw, Square } from 'lucide-react'
 import { CopyCode, RoomStatusBadge } from '@/components/common'
 import { LeaderboardTab, OverviewTab, ParticipantsTab, QuestionsTab, SettingsTab } from '@/components/room-tabs'
+import { WaitingRoomCard, useWaitingRoom } from '@/components/waiting-room'
 import { Button } from '@/components/ui/button'
 import { PageLoader } from '@/components/ui/card'
 import { Alert, Field, Input } from '@/components/ui/form'
@@ -35,6 +36,9 @@ function RoomView({ id }: { id: string }) {
   const latest = useLatestRequest()
   const load = useCallback(() => latest(api<{ room: Room; questions: BankQuestion[] }>(`/api/rooms/${id}`), d => { setRoom(d.room); setQuestions(d.questions) }).catch(err => setError(errorMessage(err))), [id, latest])
   useEffect(() => { load() }, [load])
+  // Live waiting room: checks for join requests every few seconds while the room is open.
+  const waiting = useWaitingRoom(id, room?.status === 'open' && (room?.requireApproval ?? true))
+  const pendingCount = waiting.data?.counts.pending ?? 0
 
   function changeTab(next: Tab) {
     setTab(next)
@@ -106,10 +110,19 @@ function RoomView({ id }: { id: string }) {
       <Tabs className="mb-6" value={tab} onChange={changeTab} tabs={[
         { value: 'overview', label: 'Overview' },
         { value: 'questions', label: 'Questions', count: room.poolSize },
-        { value: 'participants', label: 'Participants', count: room.joined },
+        { value: 'participants', label: <span className="flex items-center gap-2">Participants{pendingCount > 0 && <span className="rounded-full bg-primary px-1.5 py-px text-[11px] font-semibold text-primary-foreground animate-in zoom-in">{pendingCount} waiting</span>}</span>, count: room.joined },
         { value: 'leaderboard', label: 'Leaderboard' },
         { value: 'settings', label: 'Settings' },
       ]} />
+
+      {pendingCount > 0 && tab !== 'participants' && (
+        <button onClick={() => changeTab('participants')} className="mb-6 flex w-full items-center justify-between gap-3 rounded-lg border border-primary-border bg-primary-soft px-4 py-3 text-left text-sm text-primary-ink animate-in fade-in slide-in-from-top-1">
+          <span className="flex items-center gap-2.5"><span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60" /><span className="relative size-2 rounded-full bg-primary" /></span><b className="font-semibold">{pendingCount} student{pendingCount === 1 ? ' is' : 's are'} waiting to be admitted.</b></span>
+          <span className="font-medium underline">Open waiting room</span>
+        </button>
+      )}
+
+      {tab === 'participants' && room.status === 'open' && (room.requireApproval ?? true) && <div className="mb-6"><WaitingRoomCard code={room.code} data={waiting.data} act={waiting.act} /></div>}
 
       {tab === 'overview' && <OverviewTab room={room} onGo={changeTab} />}
       {tab === 'questions' && <QuestionsTab room={room} questions={questions} onRemoved={questionId => setQuestions(list => list.filter(q => q.id !== questionId))} onChanged={load} autoOpen={search.get('new') === '1'} />}

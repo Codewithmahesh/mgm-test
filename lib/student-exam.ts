@@ -1,6 +1,6 @@
 import 'server-only'
 import { HttpError, type requireStudent } from './auth'
-import { Attempt, ExamRoom, LANGUAGES, Question, Teacher, isObjectId } from './models'
+import { Attempt, ExamRoom, JoinRequest, LANGUAGES, Question, Teacher, classLabel, isObjectId } from './models'
 
 type StudentDoc = Awaited<ReturnType<typeof requireStudent>>
 
@@ -28,10 +28,35 @@ export function startBlocker(room: RoomLean, student: StudentDoc): string | null
   return null
 }
 
+export const requiresApproval = (room: { requireApproval?: boolean | null }) => room.requireApproval ?? true
+
+/** The student's join request for a waiting-room exam, if any. */
+export function findJoinRequest(room: RoomLean, student: StudentDoc) {
+  return JoinRequest.findOne({ room: room._id, studentEmail: student.officialEmail }).lean()
+}
+
+/** Creates (or re-opens after a decline) the student's request to be admitted. */
+export async function requestToJoin(room: RoomLean, student: StudentDoc) {
+  const classroom = student.classroom && typeof student.classroom === 'object' ? (student.classroom as { class?: string; branch?: string; division?: string }) : null
+  // Asking again while already waiting (or admitted) keeps the student's place in the queue.
+  const existing = await findJoinRequest(room, student)
+  if (existing && existing.status !== 'rejected') return existing
+  return JoinRequest.findOneAndUpdate(
+    { room: room._id, studentEmail: student.officialEmail, status: { $ne: 'admitted' } },
+    { $set: { status: 'pending', requestedAt: new Date(), decidedAt: null, student: student._id, studentName: student.name, rollNumber: student.rollNumber ?? '', className: classLabel(classroom) } },
+    { upsert: true, returnDocument: 'after' },
+  ).lean().catch(async error => {
+    // Already admitted (the filter skipped it and the upsert hit the unique index): return that one.
+    if ((error as { code?: number }).code === 11000) return findJoinRequest(room, student)
+    throw error
+  })
+}
+
 export async function lobbyView(room: RoomLean, student: StudentDoc) {
-  const [teacher, attempt] = await Promise.all([
+  const [teacher, attempt, request] = await Promise.all([
     Teacher.findById(room.teacher).select('name department').lean(),
     Attempt.findOne({ room: room._id, studentEmail: student.officialEmail }).select('status endsAt').lean(),
+    requiresApproval(room) ? findJoinRequest(room, student) : null,
   ])
   return {
     room: {
@@ -52,7 +77,9 @@ export async function lobbyView(room: RoomLean, student: StudentDoc) {
       requireFullscreen: room.requireFullscreen ?? true,
       blockCopyPaste: room.blockCopyPaste ?? true,
       maxViolations: room.maxViolations ?? 0,
+      requireApproval: requiresApproval(room),
     },
+    request: request ? { status: request.status, requestedAt: request.requestedAt, decidedAt: request.decidedAt ?? null } : null,
     attempt: attempt ? { id: String(attempt._id), status: attempt.status, endsAt: attempt.endsAt } : null,
     blocker: attempt ? null : startBlocker(room, student),
   }

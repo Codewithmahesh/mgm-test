@@ -29,7 +29,7 @@ export default function TeacherDashboard() {
   useEffect(() => {
     const load = () => api<Dashboard>('/api/dashboard').then(setData).catch(err => setError(errorMessage(err)))
     load()
-    const timer = window.setInterval(load, 30_000)
+    const timer = window.setInterval(load, 10_000)
     return () => window.clearInterval(timer)
   }, [])
 
@@ -58,7 +58,10 @@ export default function TeacherDashboard() {
     { label: 'Average score', value: derived.overallAvg ?? '—', suffix: derived.overallAvg != null ? '%' : '', hint: `Across ${derived.chart.length} completed exam${derived.chart.length === 1 ? '' : 's'}`, icon: ClipboardCheck, tone: 'amber' as const, href: '/teacher/rooms' },
   ]
 
+  const waitingRooms = rooms.filter(r => (r.waiting ?? 0) > 0)
+  const waitingTotal = waitingRooms.reduce((sum, r) => sum + r.waiting, 0)
   const attention = [
+    waitingTotal > 0 && { icon: Users, tone: 'red', title: `${waitingTotal} student${waitingTotal === 1 ? '' : 's'} waiting to join`, text: waitingRooms.length === 1 ? `In ${waitingRooms[0].title}. Admit them from the waiting room.` : `Across ${waitingRooms.length} rooms. Admit them from the waiting room.`, href: `/teacher/rooms/${waitingRooms[0]?.id}?tab=participants` },
     stats.pendingReview > 0 && { icon: ClipboardCheck, tone: 'violet', title: `${stats.pendingReview} paper${stats.pendingReview === 1 ? '' : 's'} to grade`, text: 'Coding answers are waiting for marks.', href: `/teacher/rooms/${rooms.find(r => r.pendingReview > 0)?.id}?tab=leaderboard` },
     derived.flagged > 0 && { icon: ShieldAlert, tone: 'red', title: `${derived.flagged} student${derived.flagged === 1 ? '' : 's'} flagged`, text: 'Possible cheating: tab switches, pasting, second device…', href: `/teacher/rooms/${rooms.find(r => r.flagged > 0)?.id}?tab=participants` },
     ...derived.notReady.slice(0, 3).map(r => ({ icon: AlertTriangle, tone: 'amber', title: `${r.title} isn't ready`, text: `Pool has ${r.mcqPoolSize}/${r.questionsPerStudent} MCQs${r.codingQuestions ? `, ${r.codingPoolSize}/${r.codingQuestions} coding` : ''}.`, href: `/teacher/rooms/${r.id}?tab=questions` })),

@@ -52,6 +52,7 @@ export type Room = {
   requireFullscreen: boolean
   blockCopyPaste: boolean
   maxViolations: number
+  requireApproval: boolean
   createdAt: string
   updatedAt: string
   poolSize: number
@@ -61,6 +62,7 @@ export type Room = {
   submitted: number
   pendingReview: number
   flagged: number
+  waiting: number
   averagePercent: number | null
 }
 

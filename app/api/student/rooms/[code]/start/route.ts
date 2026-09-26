@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { HttpError, handler, rateLimit, requireStudent } from '@/lib/auth'
 import { dealQuestions, gradeAttempt } from '@/lib/exams'
 import { Attempt } from '@/lib/models'
-import { findRoomByCode, startBlocker } from '@/lib/student-exam'
+import { findJoinRequest, findRoomByCode, requiresApproval, startBlocker } from '@/lib/student-exam'
 
 type Context = { params: Promise<{ code: string }> }
 
@@ -20,6 +20,10 @@ export const POST = handler(async (_request: Request, context: Context) => {
   }
   const blocker = startBlocker(room, student)
   if (blocker) throw new HttpError(403, blocker)
+  if (requiresApproval(room)) {
+    const request = await findJoinRequest(room, student)
+    if (request?.status !== 'admitted') throw new HttpError(403, request?.status === 'pending' ? 'Your faculty has not admitted you yet. Please wait.' : 'Request to join first; your faculty will admit you.', 'not_admitted')
+  }
 
   const questions = await dealQuestions(room)
   if (!questions.length) throw new HttpError(409, "This exam doesn't have any questions yet. Let your faculty know.")

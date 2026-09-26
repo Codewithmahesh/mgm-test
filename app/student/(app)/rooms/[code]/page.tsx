@@ -1,9 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { use, useEffect, useState } from 'react'
+import { use, useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, CalendarClock, Clock3, Code2, ListChecks, PlayCircle, ShieldAlert, Trophy, UserRound } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CalendarClock, CheckCircle2, Clock3, Code2, Hand, ListChecks, Loader2, PlayCircle, ShieldAlert, Trophy, UserRound, XCircle } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardHeader, PageLoader } from '@/components/ui/card'
 import { Alert, Checkbox } from '@/components/ui/form'
@@ -11,7 +11,8 @@ import { api, errorMessage, formatDate } from '@/lib/api'
 import { lockExamKeys } from '@/components/use-proctoring'
 
 type Lobby = {
-  room: { code: string; title: string; description: string; instructions: string; teacher: string; department: string; durationMinutes: number; mcqCount: number; codingCount: number; marksPerQuestion: number; negativeMarks: number; codingMarks: number; startsAt: string | null; status: string; requireFullscreen: boolean; blockCopyPaste: boolean; maxViolations: number }
+  room: { code: string; title: string; description: string; instructions: string; teacher: string; department: string; durationMinutes: number; mcqCount: number; codingCount: number; marksPerQuestion: number; negativeMarks: number; codingMarks: number; startsAt: string | null; status: string; requireFullscreen: boolean; blockCopyPaste: boolean; maxViolations: number; requireApproval: boolean }
+  request: { status: 'pending' | 'admitted' | 'rejected'; requestedAt: string; decidedAt: string | null } | null
   attempt: { id: string; status: string; endsAt: string } | null
   blocker: string | null
 }
@@ -23,14 +24,27 @@ export default function LobbyPage({ params }: { params: Promise<{ code: string }
   const [error, setError] = useState('')
   const [agreed, setAgreed] = useState(false)
   const [starting, setStarting] = useState(false)
+  const [requesting, setRequesting] = useState(false)
 
+  const load = useCallback(() => api<Lobby>(`/api/student/rooms/${code}`).then(next => { setData(next); setError('') }).catch(err => setError(errorMessage(err))), [code])
+  const waitingForFaculty = data?.request?.status === 'pending'
+
+  // Check every 3 seconds while waiting to be admitted (so admission shows up instantly),
+  // otherwise every 15 seconds (e.g. waiting for the room to open).
   useEffect(() => {
-    const load = () => api<Lobby>(`/api/student/rooms/${code}`).then(setData).catch(err => setError(errorMessage(err)))
     load()
-    // While waiting for the faculty to open the room, check again every 15 seconds.
-    const timer = window.setInterval(load, 15_000)
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') load() }, waitingForFaculty ? 3000 : 15_000)
     return () => window.clearInterval(timer)
-  }, [code])
+  }, [load, waitingForFaculty])
+
+  async function requestJoin() {
+    setRequesting(true)
+    setError('')
+    try { await api(`/api/student/rooms/${code}/request`, { method: 'POST' }); await load() } catch (err) { setError(errorMessage(err)) } finally { setRequesting(false) }
+  }
+  async function cancelRequest() {
+    try { await api(`/api/student/rooms/${code}/request`, { method: 'DELETE' }); await load() } catch (err) { setError(errorMessage(err)) }
+  }
 
   async function start() {
     setStarting(true)
@@ -53,7 +67,8 @@ export default function LobbyPage({ params }: { params: Promise<{ code: string }
     </div>
   )
   if (!data) return <PageLoader />
-  const { room, attempt, blocker } = data
+  const { room, attempt, blocker, request } = data
+  const needsAdmission = room.requireApproval && request?.status !== 'admitted'
   const total = room.mcqCount * room.marksPerQuestion + room.codingCount * room.codingMarks
   const rules = room.instructions.split('\n').map(line => line.trim()).filter(Boolean)
 
@@ -125,11 +140,50 @@ export default function LobbyPage({ params }: { params: Promise<{ code: string }
                 <p className="mt-0.5 text-[13px] text-muted-foreground">{room.status === 'draft' || (room.startsAt && new Date(room.startsAt) > new Date()) ? 'This page checks again automatically every few seconds.' : 'Contact your faculty if you think this is a mistake.'}{room.startsAt && ` Scheduled for ${formatDate(room.startsAt, true)}.`}</p>
               </div>
             </div>
-          ) : (
+          ) : needsAdmission && request?.status === 'pending' ? (
+            <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <span className="relative mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
+                  <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" />
+                  <Loader2 className="relative size-5 animate-spin" />
+                </span>
+                <div>
+                  <p className="text-sm font-medium">Waiting for your faculty to admit you…</p>
+                  <p className="mt-0.5 text-[13px] text-muted-foreground">Requested {new Date(request.requestedAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}. Keep this page open; it updates automatically the moment you&apos;re admitted.</p>
+                </div>
+              </div>
+              <Button variant="ghost" onClick={cancelRequest} className="shrink-0">Cancel request</Button>
+            </div>
+          ) : needsAdmission && request?.status === 'rejected' ? (
+            <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <XCircle className="mt-0.5 size-5 shrink-0 text-danger" />
+                <div>
+                  <p className="text-sm font-medium">Your faculty declined your request.</p>
+                  <p className="mt-0.5 text-[13px] text-muted-foreground">If this is a mistake, speak to your faculty and request again.</p>
+                </div>
+              </div>
+              <Button variant="outline" onClick={requestJoin} disabled={requesting} className="shrink-0"><Hand />{requesting ? 'Requesting…' : 'Request again'}</Button>
+            </div>
+          ) : needsAdmission ? (
             <>
-              <Checkbox checked={agreed} onChange={e => setAgreed(e.target.checked)} label={<span className="text-sm">I have read the instructions. I&apos;m ready to start; the {room.durationMinutes}-minute timer begins immediately.</span>} />
-              <Button size="lg" disabled={!agreed || starting} onClick={start} className="shrink-0"><PlayCircle />{starting ? 'Starting…' : 'Start exam'}</Button>
+              <div className="flex items-start gap-3">
+                <Hand className="mt-0.5 size-5 shrink-0 text-primary" />
+                <div>
+                  <p className="text-sm font-medium">Ask to join this exam</p>
+                  <p className="mt-0.5 text-[13px] text-muted-foreground">Your faculty admits students from the waiting room. Once you&apos;re admitted you can start; your timer begins only when you press Start.</p>
+                </div>
+              </div>
+              <Button size="lg" onClick={requestJoin} disabled={requesting} className="shrink-0"><Hand />{requesting ? 'Requesting…' : 'Request to join'}</Button>
             </>
+          ) : (
+            <div className="flex w-full flex-col gap-4">
+              {room.requireApproval && <p className="flex items-center gap-2 text-sm font-medium text-success animate-in fade-in slide-in-from-top-1"><CheckCircle2 className="size-4" />You&apos;ve been admitted. Start whenever you&apos;re ready.</p>}
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <Checkbox checked={agreed} onChange={e => setAgreed(e.target.checked)} label={<span className="text-sm">I have read the instructions. I&apos;m ready to start; the {room.durationMinutes}-minute timer begins immediately.</span>} />
+                <Button size="lg" disabled={!agreed || starting} onClick={start} className="shrink-0"><PlayCircle />{starting ? 'Starting…' : 'Start exam'}</Button>
+              </div>
+            </div>
           )}
         </div>
         {error && <div className="px-5 pb-5"><Alert>{error}</Alert></div>}

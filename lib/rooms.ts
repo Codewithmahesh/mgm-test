@@ -2,7 +2,7 @@ import 'server-only'
 import type { Types } from 'mongoose'
 import { HttpError } from './auth'
 import { INTEGRITY_EVENTS, INTEGRITY_EVENT_TYPES } from './integrity'
-import { Attempt, ExamRoom, Question, RESULT_VISIBILITY, isObjectId } from './models'
+import { Attempt, ExamRoom, JoinRequest, Question, RESULT_VISIBILITY, isObjectId } from './models'
 
 // Sum of violation-type flags on an attempt, as a MongoDB expression.
 const violationsExpr = { $add: [...INTEGRITY_EVENT_TYPES.filter(t => INTEGRITY_EVENTS[t].violation).map(t => ({ $ifNull: [`$flags.${t}`, 0] })), 0] }
@@ -26,6 +26,7 @@ type RoomLean = {
   requireFullscreen?: boolean | null
   blockCopyPaste?: boolean | null
   maxViolations?: number | null
+  requireApproval?: boolean | null
   createdAt?: Date
   updatedAt?: Date
 }
@@ -33,7 +34,7 @@ type RoomLean = {
 /** Adds question and attempt counts to rooms for the dashboard and room lists. */
 export async function withRoomStats(rooms: RoomLean[]) {
   const ids = rooms.map(room => room._id)
-  const [questionCounts, attemptCounts] = await Promise.all([
+  const [questionCounts, attemptCounts, waitingCounts] = await Promise.all([
     Question.aggregate<{ _id: Types.ObjectId; total: number; coding: number }>([
       { $match: { room: { $in: ids } } },
       { $group: { _id: '$room', total: { $sum: 1 }, coding: { $sum: { $cond: [{ $eq: ['$type', 'coding'] }, 1, 0] } } } },
@@ -51,10 +52,15 @@ export async function withRoomStats(rooms: RoomLean[]) {
         },
       },
     ]),
+    JoinRequest.aggregate<{ _id: Types.ObjectId; count: number }>([
+      { $match: { room: { $in: ids }, status: 'pending' } },
+      { $group: { _id: '$room', count: { $sum: 1 } } },
+    ]),
   ])
+  const waitingBy = new Map(waitingCounts.map(c => [String(c._id), c.count]))
   const questionsBy = new Map(questionCounts.map(c => [String(c._id), c]))
   const attemptsBy = new Map(attemptCounts.map(c => [String(c._id), c]))
-  return rooms.map(room => serializeRoom(room, questionsBy.get(String(room._id)), attemptsBy.get(String(room._id))))
+  return rooms.map(room => ({ ...serializeRoom(room, questionsBy.get(String(room._id)), attemptsBy.get(String(room._id))), waiting: waitingBy.get(String(room._id)) ?? 0 }))
 }
 
 export function serializeRoom(
@@ -81,6 +87,7 @@ export function serializeRoom(
     requireFullscreen: room.requireFullscreen ?? true,
     blockCopyPaste: room.blockCopyPaste ?? true,
     maxViolations: room.maxViolations ?? 0,
+    requireApproval: room.requireApproval ?? true,
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     poolSize: questions?.total ?? 0,
@@ -148,6 +155,7 @@ export function roomSettings(body: Record<string, unknown>, partial = false) {
   }
   if (has('requireFullscreen')) settings.requireFullscreen = Boolean(body.requireFullscreen)
   if (has('blockCopyPaste')) settings.blockCopyPaste = Boolean(body.blockCopyPaste)
+  if (has('requireApproval')) settings.requireApproval = Boolean(body.requireApproval)
   if (has('maxViolations')) number('maxViolations', 'Violation limit', 0, 100)
   if (has('allowedClassrooms')) {
     const list = Array.isArray(body.allowedClassrooms) ? body.allowedClassrooms : []
