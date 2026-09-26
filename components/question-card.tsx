@@ -28,6 +28,7 @@ export function QuestionCard({ question, index, actions, meta, defaultOpen = fal
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <TypeBadge type={question.type} />
             <DifficultyBadge difficulty={question.difficulty} />
+            {question.set && <span className="rounded border border-border px-1.5 py-px text-[11px] font-semibold text-muted-foreground">Set {question.set}</span>}
             {question.topic && <span className="text-xs text-muted-foreground">{question.topic}</span>}
             {question.type === 'coding' && question.points != null && <span className="text-xs text-muted-foreground">· {question.points} marks</span>}
             {meta}

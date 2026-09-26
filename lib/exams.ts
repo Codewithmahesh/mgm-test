@@ -2,9 +2,16 @@ import 'server-only'
 import { randomInt } from 'node:crypto'
 import type { Types } from 'mongoose'
 import { Attempt, ExamRoom, Question } from './models'
+import { fixedMix, setLabels } from './paper-rules'
 
 type AttemptDoc = NonNullable<Awaited<ReturnType<typeof Attempt.findOne>>>
-type RoomLike = { _id: Types.ObjectId; questionsPerStudent: number; codingQuestions?: number | null }
+type RoomLike = {
+  _id: Types.ObjectId
+  questionsPerStudent: number
+  codingQuestions?: number | null
+  paperMode?: string | null
+  difficultyMix?: { easy?: number | null; medium?: number | null; hard?: number | null } | null
+}
 
 // No 0/O/1/I so codes are easy to read out in class.
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -39,35 +46,106 @@ function takeWrapped<T>(items: T[], start: number, count: number) {
   return Array.from({ length: Math.min(count, items.length) }, (_, i) => items[(start + i) % items.length])
 }
 
+// Difficulty buckets; questions without a difficulty form their own bucket.
+const LEVELS = ['easy', 'medium', 'hard', ''] as const
+type Level = (typeof LEVELS)[number]
+type PoolQuestion = { id: string; type: string; difficulty: Level; set: string }
+
 /**
- * Picks this student's questions. Each new student gets the next slice of the shuffled pool
- * (round-robin), so questions are spread evenly and neighbours get different papers.
+ * Splits `need` across buckets in proportion to their sizes (largest remainder, ties broken by
+ * bucket order). Deterministic, so every student gets exactly the same easy/medium/hard counts.
+ */
+export function proportionalQuotas(sizes: number[], need: number) {
+  const total = sizes.reduce((a, b) => a + b, 0)
+  if (!total || need <= 0) return sizes.map(() => 0)
+  const target = Math.min(need, total)
+  const exact = sizes.map(size => (size * target) / total)
+  const quotas = exact.map(Math.floor)
+  let left = target - quotas.reduce((a, b) => a + b, 0)
+  const order = exact.map((value, i) => ({ i, rest: value - Math.floor(value) })).sort((a, b) => b.rest - a.rest || a.i - b.i)
+  for (const { i } of order) { if (left <= 0) break; if (quotas[i] < sizes[i]) { quotas[i]++; left-- } }
+  return quotas
+}
+
+/**
+ * Takes `quotas[i]` questions from each difficulty bucket, rotating through each bucket by `turn`
+ * so every question gets used evenly. If a bucket is short, the gap is filled from the other
+ * buckets (in order), so the paper length stays the same for everyone.
+ */
+function pickBalanced(candidates: PoolQuestion[], quotas: number[], turn: number) {
+  const buckets = LEVELS.map(level => candidates.filter(q => q.difficulty === level))
+  const picked = new Set<string>()
+  buckets.forEach((bucket, i) => takeWrapped(bucket, turn * quotas[i], Math.min(quotas[i], bucket.length)).forEach(q => picked.add(q.id)))
+  let missing = quotas.reduce((a, b) => a + b, 0) - picked.size
+  for (const bucket of buckets) {
+    for (const q of bucket) { if (missing <= 0) break; if (!picked.has(q.id)) { picked.add(q.id); missing-- } }
+  }
+  return candidates.filter(q => picked.has(q.id)).map(q => q.id)
+}
+
+const bucketSizes = (questions: PoolQuestion[]) => LEVELS.map(level => questions.filter(q => q.difficulty === level).length)
+
+/**
+ * Picks this student's questions so every paper is equally hard:
+ * - The difficulty mix (e.g. 6 easy, 8 medium, 6 hard) is fixed per room, either set by the faculty
+ *   or worked out once from the whole pool, and is identical for every student.
+ * - "random" mode draws from the whole pool; "sets" mode gives students sets A, B, C… in rotation.
+ * - Within a difficulty, students get the next slice of the shuffled pool (round-robin), so
+ *   questions are spread evenly and neighbours get different papers.
  * MCQs come first in random order, coding problems last.
  */
 export async function dealQuestions(room: RoomLike) {
-  const questions = await Question.find({ room: room._id }).select('_id type').lean()
-  const typeById = new Map(questions.map(q => [String(q._id), q.type]))
+  const questions = await Question.find({ room: room._id }).select('_id type difficulty set').lean()
+  const known = new Set(questions.map(q => String(q._id)))
 
   let current = await ExamRoom.findOneAndUpdate({ _id: room._id }, { $inc: { dealt: 1 } }, { returnDocument: 'before' }).select('pool dealt').lean()
   const poolIds = (current?.pool ?? []).map(String)
-  if (poolIds.length !== typeById.size || poolIds.some(id => !typeById.has(id))) {
+  if (poolIds.length !== known.size || poolIds.some(id => !known.has(id))) {
     await refreshPool(room._id)
     current = await ExamRoom.findOneAndUpdate({ _id: room._id }, { $inc: { dealt: 1 } }, { returnDocument: 'before' }).select('pool dealt').lean()
   }
-  const pool = (current?.pool ?? []).map(String)
-  const turn = current?.dealt ?? 0
+  const byId = new Map(questions.map(q => [String(q._id), q]))
+  // Pool order is the shuffled order; every list below keeps it.
+  const pool: PoolQuestion[] = (current?.pool ?? []).map(String).filter(id => byId.has(id)).map(id => {
+    const q = byId.get(id)!
+    return { id, type: q.type ?? 'mcq', difficulty: ((q.difficulty ?? '') as Level), set: q.set ?? '' }
+  })
+  let turn = current?.dealt ?? 0
 
-  const coding = pool.filter(id => typeById.get(id) === 'coding')
-  const objective = pool.filter(id => typeById.get(id) !== 'coding')
-  const codingCount = Math.min(room.codingQuestions ?? 0, coding.length)
-  const objectiveCount = Math.min(room.questionsPerStudent, objective.length)
+  // Sets mode: this student's candidates are one set plus the common (unlabelled) questions.
+  let candidates = pool
+  const sets = room.paperMode === 'sets' ? setLabels(pool) : []
+  if (sets.length) {
+    const mySet = sets[turn % sets.length]
+    candidates = pool.filter(q => q.set === mySet || !q.set)
+    turn = Math.floor(turn / sets.length)
+  }
+
+  const objectiveAll = pool.filter(q => q.type !== 'coding')
+  const codingAll = pool.filter(q => q.type === 'coding')
+  const objective = candidates.filter(q => q.type !== 'coding')
+  const coding = candidates.filter(q => q.type === 'coding')
+
+  // The mix comes from the faculty's fixed counts, or from the whole room pool so it is the same
+  // across sets; never from this student's candidates alone.
+  const mix = fixedMix(room)
+  const fixed = mix ? [mix.easy, mix.medium, mix.hard, 0] : null
+  const objectiveNeed = Math.min(fixed ? fixed.reduce((a, b) => a + b, 0) : room.questionsPerStudent, objective.length)
+  const objectiveQuotas = fixed ?? proportionalQuotas(bucketSizes(objectiveAll), objectiveNeed)
+  const codingNeed = Math.min(room.codingQuestions ?? 0, coding.length)
+  const codingQuotas = proportionalQuotas(bucketSizes(codingAll), codingNeed)
 
   const picked = [
-    ...shuffle(takeWrapped(objective, turn * objectiveCount, objectiveCount)),
-    ...takeWrapped(coding, turn * codingCount, codingCount),
+    ...shuffle(pickBalanced(objective, scaleTo(objectiveQuotas, objectiveNeed), turn)),
+    ...pickBalanced(coding, scaleTo(codingQuotas, codingNeed), turn),
   ]
-  const byId = new Map(questions.map(q => [String(q._id), q._id]))
-  return picked.map(id => byId.get(id)!)
+  return picked.map(id => byId.get(id)!._id)
+}
+
+/** Trims quotas down to `need` (when the candidates are fewer than asked for), keeping the proportions. */
+function scaleTo(quotas: number[], need: number) {
+  const total = quotas.reduce((a, b) => a + b, 0)
+  return total <= need ? quotas : proportionalQuotas(quotas, need)
 }
 
 export type CodingAnswer = { language: string; code: string }

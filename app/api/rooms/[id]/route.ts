@@ -3,6 +3,7 @@ import { HttpError, handler, readJson, requireTeacher } from '@/lib/auth'
 import { refreshPool, submitAttempt } from '@/lib/exams'
 import { Attempt, JoinRequest, Question, isObjectId } from '@/lib/models'
 import { copyOf, serializeQuestion } from '@/lib/questions'
+import { poolProblems, type PaperConfig } from '@/lib/paper-rules'
 import { findTeacherRoom, roomSettings, withRoomStats } from '@/lib/rooms'
 
 type Context = { params: Promise<{ id: string }> }
@@ -29,12 +30,13 @@ export const PATCH = handler(async (request: Request, context: Context) => {
   const settings = roomSettings(body, true)
 
   if ((settings.status ?? room.status) === 'open') {
-    const [mcqs, coding] = await Promise.all([Question.countDocuments({ room: room._id, type: { $ne: 'coding' } }), Question.countDocuments({ room: room._id, type: 'coding' })])
-    const wantMcq = Number(settings.questionsPerStudent ?? room.questionsPerStudent)
-    const wantCoding = Number(settings.codingQuestions ?? room.codingQuestions ?? 0)
-    if (mcqs + coding === 0) throw new HttpError(400, 'Add questions before opening the room.')
-    if (wantMcq > mcqs) throw new HttpError(400, `Each student needs ${wantMcq} MCQs but the room only has ${mcqs}. Add more or lower the number.`)
-    if (wantCoding > coding) throw new HttpError(400, `Each student needs ${wantCoding} coding problems but the room only has ${coding}. Add more or lower the number.`)
+    const pool = await Question.find({ room: room._id }).select('type difficulty set').lean()
+    const config = { ...room.toObject(), ...settings } as PaperConfig
+    const wantMcq = Number(config.questionsPerStudent)
+    const wantCoding = Number(config.codingQuestions ?? 0)
+    if (!pool.length) throw new HttpError(400, 'Add questions before opening the room.')
+    const problems = poolProblems(config, pool)
+    if (problems.length) throw new HttpError(400, `${problems[0]} Add more questions or change the paper settings.`)
     if (wantMcq + wantCoding === 0) throw new HttpError(400, 'Set how many MCQs or coding problems each student gets.')
   }
   if (settings.status === 'closed') room.endedAt = new Date()

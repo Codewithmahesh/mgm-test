@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, BookOpen, CheckCircle2, ClipboardCheck, Clock3, Code2, Download, Eye, ListChecks, Pencil, Plus, Radio, Send, ShieldAlert, ShieldCheck, Trash2, Trophy, Users } from 'lucide-react'
+import { AlertTriangle, BookOpen, CheckCircle2, ClipboardCheck, Clock3, Code2, Download, Eye, Layers, ListChecks, Pencil, Plus, Radio, Scale, Send, ShieldAlert, ShieldCheck, Shuffle, Trash2, Trophy, Users } from 'lucide-react'
 import { AddQuestions, type AddMethod } from '@/components/add-questions'
 import { CopyCode } from '@/components/common'
 import { IntegrityCell } from '@/components/integrity'
@@ -16,6 +16,7 @@ import { Badge, Card, CardHeader, EmptyState, Progress, Spinner, StatCard } from
 import { Alert, Checkbox } from '@/components/ui/form'
 import { useFeedback } from '@/components/ui/overlay'
 import { api, clock, downloadFile, errorMessage, formatDate, formatDuration, relativeTime, type BankQuestion, type Classroom, type DraftQuestion, type Room } from '@/lib/api'
+import { fixedMix, poolProblems, setLabels } from '@/lib/paper-rules'
 import { useLatestRequest } from '@/lib/use-latest'
 import { cn } from '@/lib/utils'
 
@@ -85,6 +86,8 @@ export function OverviewTab({ room, onGo }: { room: Room; onGo: (tab: 'questions
             <Detail icon={Trophy} label="Total marks" value={totalMarks} />
             <Detail icon={ListChecks} label="MCQs per student" value={`${room.questionsPerStudent} × ${room.marksPerQuestion}${room.negativeMarks ? ` (−${room.negativeMarks})` : ''}`} />
             <Detail icon={Code2} label="Coding per student" value={room.codingQuestions ? `${room.codingQuestions} × ${room.codingMarks}` : 'None'} />
+            <Detail icon={room.paperMode === 'sets' ? Layers : Shuffle} label="Papers" value={room.paperMode === 'sets' ? 'One set per student' : 'Random from the pool'} />
+            <Detail icon={Scale} label="Difficulty per paper" value={room.difficultyMix ? `${room.difficultyMix.easy} easy · ${room.difficultyMix.medium} medium · ${room.difficultyMix.hard} hard` : 'Balanced automatically'} />
             <Detail icon={Clock3} label="Starts" value={room.startsAt ? formatDate(room.startsAt, true) : 'When opened'} />
             <Detail icon={Eye} label="Scores shown" value={{ after_end: 'After exam ends', after_submit: 'After submitting', never: 'Never' }[room.showResults]} />
             <Detail icon={ShieldCheck} label="Proctoring" value={[room.requireFullscreen && 'Fullscreen', room.blockCopyPaste && 'No copy/paste', 'Single device'].filter(Boolean).join(' · ')} />
@@ -152,6 +155,8 @@ export function QuestionsTab({ room, questions, onChanged, onRemoved, autoOpen }
         </Card>
       </div>
 
+      {questions.length > 0 && <PaperPlan room={room} questions={questions} />}
+
       {questions.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-[13px] text-muted-foreground">Download this room&apos;s full question pool as a printable paper.</p>
@@ -165,7 +170,7 @@ export function QuestionsTab({ room, questions, onChanged, onRemoved, autoOpen }
         <Card><EmptyState icon={BookOpen} title="No questions in this room yet" description="Generate them with AI from a PDF or notes, import a CSV, write your own, or copy from your question bank." action={<Button onClick={() => setAdding('ai')}><Plus />Add questions</Button>} /></Card>
       ) : (
         <>
-          {mcqs.length > 0 && <Card><CardHeader title={`Multiple choice · ${mcqs.length}`} description={`Each student gets ${Math.min(room.questionsPerStudent, mcqs.length)} of these in random order.`} /><div>{mcqs.map((q, i) => <QuestionCard key={q.id} question={q} index={i} actions={actions(q)} />)}</div></Card>}
+          {mcqs.length > 0 && <Card><CardHeader title={`Multiple choice · ${mcqs.length}`} description={room.paperMode === 'sets' && setLabels(questions).length ? `Each student gets ${room.questionsPerStudent} from their set, in random order.` : `Each student gets ${Math.min(room.questionsPerStudent, mcqs.length)} of these in random order, with the same difficulty mix.`} /><div>{mcqs.map((q, i) => <QuestionCard key={q.id} question={q} index={i} actions={actions(q)} />)}</div></Card>}
           {coding.length > 0 && <Card><CardHeader title={`Coding problems · ${coding.length}`} description={`Each student gets ${Math.min(room.codingQuestions, coding.length)} of these.`} /><div>{coding.map((q, i) => <QuestionCard key={q.id} question={q} index={i} actions={actions(q)} />)}</div></Card>}
         </>
       )}
@@ -173,6 +178,57 @@ export function QuestionsTab({ room, questions, onChanged, onRemoved, autoOpen }
       <AddQuestions open={adding !== null} initialMethod={adding ?? 'ai'} onClose={() => setAdding(null)} roomId={room.id} defaults={{ mcq: room.questionsPerStudent, coding: room.codingQuestions }} onSaved={onChanged} />
       <QuestionEditor open={Boolean(editing)} initial={editing} onClose={() => setEditing(null)} onSave={save} />
     </div>
+  )
+}
+
+const levelCounts = (questions: BankQuestion[]) => {
+  const mcq = questions.filter(q => q.type !== 'coding')
+  return { easy: mcq.filter(q => q.difficulty === 'easy').length, medium: mcq.filter(q => q.difficulty === 'medium').length, hard: mcq.filter(q => q.difficulty === 'hard').length, unrated: mcq.filter(q => !q.difficulty).length, total: mcq.length, coding: questions.length - mcq.length }
+}
+
+/** How papers are built from this pool, per-set / per-difficulty counts, and anything that would make papers unequal. */
+function PaperPlan({ room, questions }: { room: Room; questions: BankQuestion[] }) {
+  const labels = setLabels(questions)
+  const sets = room.paperMode === 'sets'
+  const mix = fixedMix(room)
+  const problems = poolProblems(room, questions)
+  const pool = levelCounts(questions)
+  const common = questions.filter(q => !q.set)
+  return (
+    <Card>
+      <CardHeader
+        title={<span className="flex items-center gap-2">{sets ? <Layers className="size-4 text-primary" /> : <Shuffle className="size-4 text-primary" />}{sets ? 'One set per student' : 'Random paper per student'}</span>}
+        description={mix
+          ? `Every paper: ${mix.easy} easy · ${mix.medium} medium · ${mix.hard} hard MCQs${room.codingQuestions ? ` + ${room.codingQuestions} coding` : ''}.`
+          : `Difficulty is balanced automatically: every student gets the same easy / medium / hard counts, in the pool's proportions.`}
+        action={problems.length ? <Badge tone="amber">Not ready</Badge> : <Badge tone="green">Fair papers</Badge>}
+      />
+      <div className="flex flex-col gap-3 p-5 pt-4">
+        {sets && labels.length === 0 && <Alert tone="info">No question has a set yet, so papers are drawn from the whole pool. Generate questions in sets with AI, or tag questions with a set (A, B…) when editing them.</Alert>}
+        {sets && labels.length > 0 ? (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {labels.map(label => {
+              const c = levelCounts([...questions.filter(q => q.set === label), ...common])
+              return (
+                <div key={label} className="rounded-lg border border-border px-3 py-2.5">
+                  <p className="text-sm font-semibold">Set {label} <span className="font-normal text-muted-foreground">· {c.total} MCQ{c.coding ? ` · ${c.coding} coding` : ''}</span></p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{c.easy} easy · {c.medium} medium · {c.hard} hard{c.unrated ? ` · ${c.unrated} unrated` : ''}</p>
+                </div>
+              )
+            })}
+            {common.length > 0 && <p className="self-center text-xs text-muted-foreground">{common.length} question{common.length === 1 ? '' : 's'} without a set {common.length === 1 ? 'is' : 'are'} used in every set.</p>}
+          </div>
+        ) : (
+          <p className="text-[13px] text-muted-foreground">Pool: {pool.easy} easy · {pool.medium} medium · {pool.hard} hard{pool.unrated ? ` · ${pool.unrated} without a difficulty` : ''} MCQs.</p>
+        )}
+        {problems.length > 0 && (
+          <Alert tone="warning">
+            <p className="font-medium">Papers can&apos;t be made equal yet:</p>
+            <ul className="mt-1 list-disc pl-5">{problems.slice(0, 6).map(problem => <li key={problem}>{problem}</li>)}</ul>
+          </Alert>
+        )}
+      </div>
+    </Card>
   )
 }
 

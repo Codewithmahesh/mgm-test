@@ -2,7 +2,7 @@ import 'server-only'
 import type { Types } from 'mongoose'
 import { HttpError } from './auth'
 import { INTEGRITY_EVENTS, INTEGRITY_EVENT_TYPES } from './integrity'
-import { Attempt, ExamRoom, JoinRequest, Question, RESULT_VISIBILITY, isObjectId } from './models'
+import { Attempt, ExamRoom, JoinRequest, PAPER_MODES, Question, RESULT_VISIBILITY, isObjectId } from './models'
 
 // Sum of violation-type flags on an attempt, as a MongoDB expression.
 const violationsExpr = { $add: [...INTEGRITY_EVENT_TYPES.filter(t => INTEGRITY_EVENTS[t].violation).map(t => ({ $ifNull: [`$flags.${t}`, 0] })), 0] }
@@ -27,6 +27,8 @@ type RoomLean = {
   blockCopyPaste?: boolean | null
   maxViolations?: number | null
   requireApproval?: boolean | null
+  paperMode?: string | null
+  difficultyMix?: { easy?: number | null; medium?: number | null; hard?: number | null } | null
   createdAt?: Date
   updatedAt?: Date
 }
@@ -88,6 +90,10 @@ export function serializeRoom(
     blockCopyPaste: room.blockCopyPaste ?? true,
     maxViolations: room.maxViolations ?? 0,
     requireApproval: room.requireApproval ?? true,
+    paperMode: (room.paperMode === 'sets' ? 'sets' : 'random') as 'random' | 'sets',
+    difficultyMix: room.difficultyMix && (room.difficultyMix.easy || room.difficultyMix.medium || room.difficultyMix.hard)
+      ? { easy: room.difficultyMix.easy ?? 0, medium: room.difficultyMix.medium ?? 0, hard: room.difficultyMix.hard ?? 0 }
+      : null,
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     poolSize: questions?.total ?? 0,
@@ -157,6 +163,26 @@ export function roomSettings(body: Record<string, unknown>, partial = false) {
   if (has('blockCopyPaste')) settings.blockCopyPaste = Boolean(body.blockCopyPaste)
   if (has('requireApproval')) settings.requireApproval = Boolean(body.requireApproval)
   if (has('maxViolations')) number('maxViolations', 'Violation limit', 0, 100)
+  if (has('paperMode')) {
+    if (!(PAPER_MODES as readonly string[]).includes(String(body.paperMode))) throw new HttpError(400, 'Paper mode must be random or sets.')
+    settings.paperMode = body.paperMode
+  }
+  if (has('difficultyMix')) {
+    const mix = body.difficultyMix as Record<string, unknown> | null
+    if (!mix) settings.difficultyMix = null
+    else {
+      const counts = { easy: 0, medium: 0, hard: 0 }
+      for (const level of ['easy', 'medium', 'hard'] as const) {
+        const value = Number(mix[level] ?? 0)
+        if (!Number.isInteger(value) || value < 0 || value > 500) throw new HttpError(400, `${level[0].toUpperCase() + level.slice(1)} questions must be a whole number between 0 and 500.`)
+        counts[level] = value
+      }
+      const total = counts.easy + counts.medium + counts.hard
+      settings.difficultyMix = total ? counts : null
+      // A fixed mix defines the paper's MCQ count.
+      if (total) settings.questionsPerStudent = total
+    }
+  }
   if (has('allowedClassrooms')) {
     const list = Array.isArray(body.allowedClassrooms) ? body.allowedClassrooms : []
     settings.allowedClassrooms = list.filter(isObjectId)

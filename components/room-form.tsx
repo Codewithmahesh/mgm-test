@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Clock3, Code2, ListChecks, Trophy } from 'lucide-react'
+import { Clock3, Code2, Layers, ListChecks, Scale, Shuffle, Trophy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'
 import { Alert, Field, Input, Select, Textarea } from '@/components/ui/form'
@@ -25,6 +25,11 @@ export type RoomFormValues = {
   blockCopyPaste: boolean
   maxViolations: string
   requireApproval: boolean
+  paperMode: 'random' | 'sets'
+  mixMode: 'auto' | 'fixed'
+  mixEasy: string
+  mixMedium: string
+  mixHard: string
 }
 
 const DEFAULT_INSTRUCTIONS = [
@@ -35,7 +40,7 @@ const DEFAULT_INSTRUCTIONS = [
 ].join('\n')
 
 export function emptyRoomValues(): RoomFormValues {
-  return { title: '', description: '', instructions: DEFAULT_INSTRUCTIONS, durationMinutes: '60', questionsPerStudent: '20', codingQuestions: '0', marksPerQuestion: '1', negativeMarks: '0', codingMarks: '10', startsAt: '', showResults: 'after_end', allowedClassrooms: [], requireFullscreen: true, blockCopyPaste: true, maxViolations: '0', requireApproval: true }
+  return { title: '', description: '', instructions: DEFAULT_INSTRUCTIONS, durationMinutes: '60', questionsPerStudent: '20', codingQuestions: '0', marksPerQuestion: '1', negativeMarks: '0', codingMarks: '10', startsAt: '', showResults: 'after_end', allowedClassrooms: [], requireFullscreen: true, blockCopyPaste: true, maxViolations: '0', requireApproval: true, paperMode: 'random', mixMode: 'auto', mixEasy: '6', mixMedium: '8', mixHard: '6' }
 }
 
 function toLocalInput(value: string | null) {
@@ -51,6 +56,8 @@ export function roomToValues(room: Room): RoomFormValues {
     marksPerQuestion: String(room.marksPerQuestion), negativeMarks: String(room.negativeMarks), codingMarks: String(room.codingMarks),
     startsAt: toLocalInput(room.startsAt), showResults: room.showResults, allowedClassrooms: room.allowedClassrooms,
     requireFullscreen: room.requireFullscreen, blockCopyPaste: room.blockCopyPaste, maxViolations: String(room.maxViolations), requireApproval: room.requireApproval,
+    paperMode: room.paperMode, mixMode: room.difficultyMix ? 'fixed' : 'auto',
+    mixEasy: String(room.difficultyMix?.easy ?? 6), mixMedium: String(room.difficultyMix?.medium ?? 8), mixHard: String(room.difficultyMix?.hard ?? 6),
   }
 }
 
@@ -60,8 +67,23 @@ export function valuesToPayload(values: RoomFormValues) {
     durationMinutes: Number(values.durationMinutes), questionsPerStudent: Number(values.questionsPerStudent), codingQuestions: Number(values.codingQuestions),
     marksPerQuestion: Number(values.marksPerQuestion), negativeMarks: Number(values.negativeMarks), codingMarks: Number(values.codingMarks),
     maxViolations: Number(values.maxViolations) || 0,
+    paperMode: values.paperMode,
+    difficultyMix: values.mixMode === 'fixed' ? { easy: Number(values.mixEasy) || 0, medium: Number(values.mixMedium) || 0, hard: Number(values.mixHard) || 0 } : null,
+    ...(values.mixMode === 'fixed' ? { questionsPerStudent: fixedTotal(values) } : {}),
     startsAt: values.startsAt ? new Date(values.startsAt).toISOString() : null,
   }
+}
+
+const fixedTotal = (values: RoomFormValues) => (Number(values.mixEasy) || 0) + (Number(values.mixMedium) || 0) + (Number(values.mixHard) || 0)
+
+function Choice({ selected, onSelect, icon: Icon, title, text }: { selected: boolean; onSelect: () => void; icon: React.ComponentType<{ className?: string }>; title: string; text: string }) {
+  return (
+    <button type="button" onClick={onSelect} aria-pressed={selected}
+      className={cn('flex items-start gap-3 rounded-lg border p-3.5 text-left transition-colors', selected ? 'border-primary bg-primary-soft/50 ring-1 ring-primary' : 'border-border hover:border-border-strong hover:bg-muted/50')}>
+      <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-md', selected ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}><Icon className="size-4" /></span>
+      <span><span className="block text-sm font-medium">{title}</span><span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{text}</span></span>
+    </button>
+  )
 }
 
 export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: RoomFormValues; submitLabel: string; onSubmit: (values: RoomFormValues) => Promise<void>; pool?: { mcq: number; coding: number } }) {
@@ -74,7 +96,8 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
   const set = <K extends keyof RoomFormValues>(key: K, value: RoomFormValues[K]) => setValues(current => ({ ...current, [key]: value }))
   const text = (key: keyof RoomFormValues) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => set(key, event.target.value as never)
 
-  const mcq = Number(values.questionsPerStudent) || 0
+  const fixed = values.mixMode === 'fixed'
+  const mcq = fixed ? fixedTotal(values) : Number(values.questionsPerStudent) || 0
   const coding = Number(values.codingQuestions) || 0
   const totalMarks = mcq * (Number(values.marksPerQuestion) || 0) + coding * (Number(values.codingMarks) || 0)
 
@@ -103,11 +126,36 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
           <CardHeader title="Paper and timing" description="How many questions each student gets, and how they're marked." />
           <div className="grid gap-4 p-5 sm:grid-cols-3">
             <Field label="Duration (minutes)" required htmlFor="duration"><Input id="duration" type="number" min={1} max={600} required value={values.durationMinutes} onChange={text('durationMinutes')} /></Field>
-            <Field label="MCQs per student" required htmlFor="mcq" hint={pool ? `${pool.mcq} in this room's pool` : undefined}><Input id="mcq" type="number" min={0} max={500} required value={values.questionsPerStudent} onChange={text('questionsPerStudent')} /></Field>
+            <Field label="MCQs per student" required htmlFor="mcq" hint={pool ? `${pool.mcq} in this room's pool` : undefined}><Input id="mcq" type="number" min={0} max={500} required disabled={fixed} value={fixed ? String(mcq) : values.questionsPerStudent} onChange={text('questionsPerStudent')} /></Field>
             <Field label="Coding problems per student" htmlFor="coding" hint={pool ? `${pool.coding} in this room's pool` : undefined}><Input id="coding" type="number" min={0} max={20} value={values.codingQuestions} onChange={text('codingQuestions')} /></Field>
             <Field label="Marks per MCQ" htmlFor="marks"><Input id="marks" type="number" min={0} step={0.25} value={values.marksPerQuestion} onChange={text('marksPerQuestion')} /></Field>
             <Field label="Negative marks per wrong MCQ" htmlFor="neg" hint="0 for no negative marking."><Input id="neg" type="number" min={0} step={0.25} value={values.negativeMarks} onChange={text('negativeMarks')} /></Field>
             <Field label="Marks per coding problem" htmlFor="cmarks" hint="Default; a problem can set its own."><Input id="cmarks" type="number" min={0} step={0.5} value={values.codingMarks} onChange={text('codingMarks')} /></Field>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader title="How each paper is made" description="Every student gets the same number of questions at each difficulty, so no one gets an easier or harder paper." />
+          <div className="flex flex-col gap-5 p-5">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Choice selected={values.paperMode === 'random'} onSelect={() => set('paperMode', 'random')} icon={Shuffle} title="Random from the pool" text="Each student gets a different random paper drawn from all the room's questions." />
+              <Choice selected={values.paperMode === 'sets'} onSelect={() => set('paperMode', 'sets')} icon={Layers} title="One set per student" text="Students get sets A, B, C… in rotation, so neighbours write different sets. Tag questions with a set, or generate them in sets with AI." />
+            </div>
+            <div>
+              <p className="text-[13px] font-medium">Difficulty of each paper (MCQs)</p>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <Choice selected={!fixed} onSelect={() => set('mixMode', 'auto')} icon={Scale} title="Balanced automatically" text="The pool's easy / medium / hard proportions are applied to every paper, with the same counts for everyone." />
+                <Choice selected={fixed} onSelect={() => set('mixMode', 'fixed')} icon={ListChecks} title="Fixed count per level" text="You choose exactly how many easy, medium and hard MCQs every student gets." />
+              </div>
+              {fixed && (
+                <div className="mt-3 flex flex-wrap items-end gap-3">
+                  {([['mixEasy', 'Easy'], ['mixMedium', 'Medium'], ['mixHard', 'Hard']] as const).map(([key, label]) => (
+                    <Field key={key} label={label} className="w-24"><Input type="number" min={0} max={500} value={values[key]} onChange={text(key)} /></Field>
+                  ))}
+                  <p className="pb-2 text-[13px] text-muted-foreground">= <b className="font-semibold text-foreground">{mcq}</b> MCQs per student</p>
+                </div>
+              )}
+            </div>
           </div>
         </Card>
 

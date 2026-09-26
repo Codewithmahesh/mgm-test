@@ -15,6 +15,7 @@ export type QuestionInput = {
   correctIndex: number | null
   topic: string
   difficulty: (typeof DIFFICULTIES)[number] | null
+  set: string
   explanation: string
   language: string
   starterCode: string
@@ -54,6 +55,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   type: ['type', 'questiontype'],
   topic: ['topic', 'subject', 'chapter'],
   difficulty: ['difficulty', 'level'],
+  set: ['set', 'paperset', 'setname', 'questionset'],
   explanation: ['explanation', 'solution'],
   language: ['language', 'lang'],
   starterCode: ['startercode', 'starter', 'template'],
@@ -93,6 +95,11 @@ function normalizeDifficulty(value: unknown): QuestionInput['difficulty'] {
   return (DIFFICULTIES as readonly string[]).includes(level) ? (level as QuestionInput['difficulty']) : null
 }
 
+/** "set b", "B", "Set-B" → "B". */
+export function normalizeSet(value: unknown) {
+  return String(value ?? '').trim().replace(/^set[\s_-]*/i, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12)
+}
+
 /** Validates and cleans one question. Returns an error string when it can't be used. */
 export function normalizeQuestion(raw: Record<string, unknown>): QuestionInput | string {
   const text = String(raw.text ?? raw.question ?? '').trim()
@@ -103,6 +110,7 @@ export function normalizeQuestion(raw: Record<string, unknown>): QuestionInput |
     text: text.slice(0, 5000),
     topic: String(raw.topic ?? '').trim().slice(0, 120),
     difficulty: normalizeDifficulty(raw.difficulty),
+    set: normalizeSet(raw.set),
     explanation: String(raw.explanation ?? '').trim().slice(0, 5000),
   }
   const noCoding = { title: '', inputFormat: '', outputFormat: '', constraints: '', samples: [] as Sample[], points: null }
@@ -155,6 +163,7 @@ export function questionsFromCsv(csv: string) {
       type: get('type') || undefined,
       topic: get('topic'),
       difficulty: get('difficulty'),
+      set: get('set'),
       explanation: get('explanation'),
       language: get('language'),
       starterCode: get('starterCode'),
@@ -182,6 +191,7 @@ export function serializeQuestion(q: QuestionDoc) {
     correctIndex: q.correctIndex,
     topic: q.topic ?? '',
     difficulty: q.difficulty ?? null,
+    set: q.set ?? '',
     explanation: q.explanation ?? '',
     language: q.language ?? '',
     starterCode: q.starterCode ?? '',

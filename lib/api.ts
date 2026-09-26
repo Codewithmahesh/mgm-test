@@ -63,8 +63,12 @@ export type Room = {
   pendingReview: number
   flagged: number
   waiting: number
+  paperMode: 'random' | 'sets'
+  difficultyMix: DifficultyMix | null
   averagePercent: number | null
 }
+
+export type DifficultyMix = { easy: number; medium: number; hard: number }
 
 export type Sample = { input: string; output: string; explanation: string }
 
@@ -75,6 +79,7 @@ export type DraftQuestion = {
   correctIndex: number | null
   topic: string
   difficulty: 'easy' | 'medium' | 'hard' | null
+  set: string
   explanation: string
   title: string
   inputFormat: string

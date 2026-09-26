@@ -75,6 +75,8 @@ const questionSchema = new Schema(
     correctIndex: { type: Number, default: null },
     topic: { type: String, trim: true, default: '' },
     difficulty: { type: String, enum: [...DIFFICULTIES, null], default: null },
+    // Question set label ("A", "B"…). Empty = common to every set.
+    set: { type: String, trim: true, uppercase: true, default: '' },
     explanation: { type: String, default: '' },
     // Coding problems only
     title: { type: String, trim: true, default: '' },
@@ -94,6 +96,9 @@ questionSchema.index({ teacher: 1, createdAt: -1 })
 
 export const ROOM_STATUSES = ['draft', 'open', 'closed'] as const
 export const RESULT_VISIBILITY = ['after_submit', 'after_end', 'never'] as const
+export const PAPER_MODES = ['random', 'sets'] as const
+
+const difficultyMixSchema = new Schema({ easy: { type: Number, default: 0 }, medium: { type: Number, default: 0 }, hard: { type: Number, default: 0 } }, { _id: false })
 
 const examRoomSchema = new Schema(
   {
@@ -122,6 +127,10 @@ const examRoomSchema = new Schema(
     maxViolations: { type: Number, default: 0, min: 0 },
     // Waiting room: students request to join and faculty admit them before they can start.
     requireApproval: { type: Boolean, default: true },
+    // random: each student gets a random paper from the whole pool. sets: each student gets one question set.
+    paperMode: { type: String, enum: PAPER_MODES, default: 'random' },
+    // Fixed MCQ count per difficulty for every paper. null = balanced automatically (same mix for everyone).
+    difficultyMix: { type: difficultyMixSchema, default: null },
     // Shuffled question ids, dealt round-robin so every question gets used evenly.
     pool: { type: [Schema.Types.ObjectId], default: [] },
     dealt: { type: Number, default: 0 },
