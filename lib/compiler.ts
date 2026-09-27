@@ -19,11 +19,11 @@ export type SupportedLanguage = {
 }
 
 export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
-  { key: 'python',     label: 'Python 3',   pistonLang: 'python',     judge0Id: 71, version: '3.10.0' },
+  { key: 'python',     label: 'Python 3',   pistonLang: 'python',     judge0Id: 71, version: '3.12.0' },
   { key: 'cpp',        label: 'C++ (GCC)',  pistonLang: 'c++',        judge0Id: 54, version: '10.2.0' },
   { key: 'c',          label: 'C (GCC)',    pistonLang: 'c',          judge0Id: 50, version: '10.2.0' },
   { key: 'java',       label: 'Java',       pistonLang: 'java',       judge0Id: 62, version: '15.0.2' },
-  { key: 'javascript', label: 'JavaScript', pistonLang: 'javascript', judge0Id: 63, version: '18.15.0' },
+  { key: 'javascript', label: 'JavaScript', pistonLang: 'javascript', judge0Id: 63, version: '20.11.1' },
 ]
 
 export function getSupportedLanguage(key: string): SupportedLanguage | undefined {

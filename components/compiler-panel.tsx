@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, ChevronDown, ChevronUp, CircleX, Loader2, Play, Plus, Terminal, Trash2, XCircle } from 'lucide-react'
 import { CodeEditor } from '@/components/code-editor'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,54 @@ export function CompilerPanel() {
   const [testCases, setTestCases] = useState<TestCaseInput[]>([])
   const [testResults, setTestResults] = useState<TestResult[] | null>(null)
   const [overallPassed, setOverallPassed] = useState<boolean | null>(null)
+
+  // Resizable split state
+  const [editorPercent, setEditorPercent] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('compiler_panel_split_ratio')
+        if (saved) {
+          const parsed = parseFloat(saved)
+          if (!isNaN(parsed) && parsed >= 25 && parsed <= 80) return parsed
+        }
+      } catch {}
+    }
+    return 58
+  })
+  const [isDragging, setIsDragging] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isDragging) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return
+      const rect = containerRef.current.getBoundingClientRect()
+      if (rect.width <= 0) return
+      const rawPercent = ((e.clientX - rect.left) / rect.width) * 100
+      const clamped = Math.min(Math.max(rawPercent, 25), 80)
+      setEditorPercent(clamped)
+    }
+
+    const handleMouseUp = () => {
+      setIsDragging(false)
+      try {
+        localStorage.setItem('compiler_panel_split_ratio', editorPercent.toString())
+      } catch {}
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging, editorPercent])
   const [activeTab, setActiveTab] = useState<'output' | 'testcases'>('output')
 
   function changeLanguage(next: string) {
@@ -93,9 +141,16 @@ export function CompilerPanel() {
   }
 
   return (
-    <div className="flex h-full flex-col lg:flex-row">
+    <div
+      ref={containerRef}
+      style={{ ['--editor-w' as string]: `${editorPercent}%` } as React.CSSProperties}
+      className={cn('relative flex h-full flex-col lg:flex-row overflow-hidden', isDragging && 'select-none cursor-col-resize')}
+    >
+      {/* Drag overlay to prevent editor from capturing mouse events */}
+      {isDragging && <div className="absolute inset-0 z-50 cursor-col-resize select-none" />}
+
       {/* ── Left: Editor ─────────────────────────────────────────────── */}
-      <section className="flex min-h-0 flex-1 flex-col bg-[#1e1e1e]">
+      <section className="flex min-h-0 shrink-0 flex-col bg-[#1e1e1e] overflow-hidden lg:w-[var(--editor-w)] max-lg:max-h-[50%]">
         <div className="flex items-center justify-between gap-2 border-b border-black/40 bg-[#252526] px-3 py-2">
           <div className="flex items-center gap-2">
             <Select value={language} onChange={e => changeLanguage(e.target.value)} aria-label="Language" className="h-8 w-44 border-white/10 bg-[#3c3c3c] text-[13px] text-white focus:border-primary">
@@ -111,8 +166,30 @@ export function CompilerPanel() {
         </div>
       </section>
 
+      {/* ── Draggable Splitter Handle (Desktop) ────────────────────────── */}
+      <div
+        onMouseDown={handleSplitMouseDown}
+        onDoubleClick={() => {
+          setEditorPercent(58)
+          try { localStorage.setItem('compiler_panel_split_ratio', '58') } catch {}
+        }}
+        className={cn(
+          'group relative hidden lg:flex w-2 shrink-0 cursor-col-resize items-center justify-center bg-border/40 hover:bg-primary/20 transition-colors z-20 select-none border-x border-border/40',
+          isDragging && 'bg-primary/30 border-primary/50'
+        )}
+        title="Drag to resize editor / output width (Double-click to reset)"
+      >
+        <div className={cn(
+          'flex flex-col gap-1 items-center justify-center py-2 px-0.5 rounded transition-all',
+          isDragging ? 'bg-primary text-white scale-110 shadow-sm' : 'bg-muted-foreground/30 text-muted-foreground group-hover:bg-primary group-hover:text-white'
+        )}>
+          <div className="w-0.5 h-3 rounded-full bg-current opacity-80" />
+          <div className="w-0.5 h-3 rounded-full bg-current opacity-80" />
+        </div>
+      </div>
+
       {/* ── Right: Output & Test Cases ───────────────────────────────── */}
-      <section className="flex min-h-0 flex-col border-border lg:w-[42%] lg:border-l max-lg:max-h-[50%] max-lg:border-t">
+      <section className="flex min-h-0 flex-1 flex-col border-border max-lg:max-h-[50%] max-lg:border-t overflow-hidden">
         {/* Tab bar */}
         <div className="flex shrink-0 border-b border-border bg-card">
           <button onClick={() => setActiveTab('output')} className={cn('flex items-center gap-1.5 px-4 py-2.5 text-[13px] font-medium transition-colors', activeTab === 'output' ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground hover:text-foreground')}>

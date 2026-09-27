@@ -560,6 +560,54 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
   const [terminalOutput, setTerminalOutput] = useState<{ stdout: string; stderr: string; time?: string | null; memory?: string | null } | null>(null)
   const [execError, setExecError] = useState<string | null>(null)
 
+  // Split pane resizing state (persisted across questions & reload)
+  const [splitRatio, setSplitRatio] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('exam_coding_split_ratio')
+        if (saved) {
+          const parsed = parseFloat(saved)
+          if (!isNaN(parsed) && parsed >= 20 && parsed <= 75) return parsed
+        }
+      } catch {}
+    }
+    return 42
+  })
+  const [isDragging, setIsDragging] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isDragging) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return
+      const rect = containerRef.current.getBoundingClientRect()
+      if (rect.width <= 0) return
+      const rawPercent = ((e.clientX - rect.left) / rect.width) * 100
+      const clamped = Math.min(Math.max(rawPercent, 20), 75)
+      setSplitRatio(clamped)
+    }
+
+    const handleMouseUp = () => {
+      setIsDragging(false)
+      try {
+        localStorage.setItem('exam_coding_split_ratio', splitRatio.toString())
+      } catch {}
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging, splitRatio])
+
   const { confirm, toast } = useFeedback()
 
   function changeLanguage(next: string) {
@@ -788,9 +836,16 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
   }, [handleRun, handleSubmitCode])
 
   return (
-    <div className="flex h-full flex-col lg:flex-row">
+    <div
+      ref={containerRef}
+      style={{ ['--split-w' as string]: `${splitRatio}%` } as React.CSSProperties}
+      className={cn('relative flex h-full flex-col lg:flex-row overflow-hidden', isDragging && 'select-none cursor-col-resize')}
+    >
+      {/* Drag overlay to prevent Monaco Editor / text from stealing pointer events during drag */}
+      {isDragging && <div className="absolute inset-0 z-50 cursor-col-resize select-none" />}
+
       {/* ── Left Pane: Problem Description ───────────────────────────────── */}
-      <section className="flex min-h-0 flex-col border-border lg:w-[44%] lg:border-r max-lg:max-h-[42%] max-lg:border-b bg-card">
+      <section className="flex min-h-0 shrink-0 flex-col border-border max-lg:max-h-[42%] max-lg:border-b bg-card lg:w-[var(--split-w)]">
         {/* Problem Header */}
         <div className="flex items-center justify-between gap-3 border-b border-border bg-card px-5 py-3">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -902,8 +957,31 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
         </div>
       </section>
 
+      {/* ── Draggable Splitter Handle (Desktop) ────────────────────────── */}
+      <div
+        onMouseDown={handleSplitMouseDown}
+        onDoubleClick={() => {
+          setSplitRatio(42)
+          try { localStorage.setItem('exam_coding_split_ratio', '42') } catch {}
+        }}
+        className={cn(
+          'group relative hidden lg:flex w-2 shrink-0 cursor-col-resize items-center justify-center bg-border/40 hover:bg-primary/20 transition-colors z-20 select-none border-x border-border/40',
+          isDragging && 'bg-primary/30 border-primary/50'
+        )}
+        title="Drag to resize panels (Double-click to reset)"
+      >
+        {/* Visual grip handle */}
+        <div className={cn(
+          'flex flex-col gap-1 items-center justify-center py-2 px-0.5 rounded transition-all',
+          isDragging ? 'bg-primary text-white scale-110 shadow-sm' : 'bg-muted-foreground/30 text-muted-foreground group-hover:bg-primary group-hover:text-white'
+        )}>
+          <div className="w-0.5 h-3 rounded-full bg-current opacity-80" />
+          <div className="w-0.5 h-3 rounded-full bg-current opacity-80" />
+        </div>
+      </div>
+
       {/* ── Right Pane: Professional Code Editor & Interactive Console ────── */}
-      <section className="flex min-h-0 flex-1 flex-col bg-[#1e1e1e]">
+      <section className="flex min-h-0 flex-1 flex-col bg-[#1e1e1e] overflow-hidden">
         {/* Editor Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/40 bg-[#252526] px-3.5 py-2">
           {/* Left toolbar items */}
