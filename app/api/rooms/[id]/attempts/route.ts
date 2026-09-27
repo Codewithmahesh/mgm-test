@@ -33,6 +33,7 @@ export const GET = handler(async (request: Request, context: Context) => {
       studentEmail: a.studentEmail ?? '',
       rollNumber: student?.rollNumber || a.rollNumber || '',
       className: classLabel(classroom),
+      set: a.setLabel ?? '',
       status: a.status,
       answered: a.answers.filter(isAnswered).length,
       totalQuestions: a.questions.length,
@@ -70,9 +71,9 @@ export const GET = handler(async (request: Request, context: Context) => {
   })
 
   if (new URL(request.url).searchParams.get('format') === 'csv') {
-    const header = ['Rank', 'Name', 'Email', 'Roll number', 'Class', 'Status', 'Answered', 'MCQ correct', 'MCQ wrong', 'MCQ score', 'Coding score', 'Coding to grade', 'Total', 'Max', 'Percent', 'Time taken (min)', 'Integrity', 'Violations', ...INTEGRITY_EVENT_TYPES.map(t => INTEGRITY_EVENTS[t].label), 'Submitted at']
+    const header = ['Rank', 'Name', 'Email', 'Roll number', 'Class', 'Set', 'Status', 'Answered', 'MCQ correct', 'MCQ wrong', 'MCQ score', 'Coding score', 'Coding to grade', 'Total', 'Max', 'Percent', 'Time taken (min)', 'Integrity', 'Violations', ...INTEGRITY_EVENT_TYPES.map(t => INTEGRITY_EVENTS[t].label), 'Submitted at']
     const lines = ranked.map(r => [
-      r.rank ?? '', r.studentName, r.studentEmail, r.rollNumber, r.className,
+      r.rank ?? '', r.studentName, r.studentEmail, r.rollNumber, r.className, r.set,
       r.status === 'submitted' ? (r.autoSubmitted ? `Auto-submitted (${{ time: 'time up', violations: 'too many violations', faculty: 'by faculty', room_closed: 'exam ended' }[r.autoSubmitReason as string] ?? 'time up'})` : 'Submitted') : 'Writing',
       `${r.answered}/${r.totalQuestions}`, r.correctCount, r.wrongCount, r.mcqScore, r.codingScore, r.codingPending, r.score, r.maxScore,
       r.maxScore ? `${Math.round((r.score / r.maxScore) * 100)}%` : '',

@@ -1,4 +1,5 @@
 import mongoose, { Schema, type InferSchemaType, type Model, Types } from 'mongoose'
+import { BLOOM_LEVELS } from './bloom'
 
 // Field names match the documents already stored in the `examly` database,
 // so existing teachers, students, rooms, questions and attempts keep working.
@@ -74,9 +75,12 @@ const questionSchema = new Schema(
     options: { type: [String], default: [] },
     correctIndex: { type: Number, default: null },
     topic: { type: String, trim: true, default: '' },
+    // Legacy easy/medium/hard; replaced by Bloom's taxonomy level.
     difficulty: { type: String, enum: [...DIFFICULTIES, null], default: null },
-    // Question set label ("A", "B"…). Empty = common to every set.
-    set: { type: String, trim: true, uppercase: true, default: '' },
+    bloom: { type: String, enum: [...BLOOM_LEVELS, null], default: null },
+    // Question set label ("A", "B"…). Empty = common to every set. Exposed as `set` in the API;
+    // not stored as `set`, which would shadow Mongoose's document.set().
+    setLabel: { type: String, trim: true, uppercase: true, default: '' },
     explanation: { type: String, default: '' },
     // Coding problems only
     title: { type: String, trim: true, default: '' },
@@ -98,7 +102,7 @@ export const ROOM_STATUSES = ['draft', 'open', 'closed'] as const
 export const RESULT_VISIBILITY = ['after_submit', 'after_end', 'never'] as const
 export const PAPER_MODES = ['random', 'sets'] as const
 
-const difficultyMixSchema = new Schema({ easy: { type: Number, default: 0 }, medium: { type: Number, default: 0 }, hard: { type: Number, default: 0 } }, { _id: false })
+const bloomPlanSchema = new Schema({ level: { type: String, enum: BLOOM_LEVELS, required: true }, count: { type: Number, min: 0, default: 0 }, marks: { type: Number, min: 0, default: 1 } }, { _id: false })
 
 const examRoomSchema = new Schema(
   {
@@ -129,8 +133,11 @@ const examRoomSchema = new Schema(
     requireApproval: { type: Boolean, default: true },
     // random: each student gets a random paper from the whole pool. sets: each student gets one question set.
     paperMode: { type: String, enum: PAPER_MODES, default: 'random' },
-    // Fixed MCQ count per difficulty for every paper. null = balanced automatically (same mix for everyone).
-    difficultyMix: { type: difficultyMixSchema, default: null },
+    // Sets mode: how many sets (A, B, C…); each set is a full paper.
+    setCount: { type: Number, default: 0, min: 0 },
+    // MCQs per Bloom level on every paper, with marks per question for that level.
+    // Empty = levels balanced automatically, every question at marksPerQuestion.
+    bloomPlan: { type: [bloomPlanSchema], default: [] },
     // Shuffled question ids, dealt round-robin so every question gets used evenly.
     pool: { type: [Schema.Types.ObjectId], default: [] },
     dealt: { type: Number, default: 0 },
@@ -161,6 +168,10 @@ const attemptSchema = new Schema(
     submittedAt: Date,
     autoSubmitted: { type: Boolean, default: false },
     marksPerQuestion: { type: Number, default: 1 },
+    // Marks for each question on this paper (same order as `questions`); falls back to marksPerQuestion.
+    questionMarks: { type: [Number], default: [] },
+    // Question set this paper came from ("A", "B"…). Shown to the student only after submitting.
+    setLabel: { type: String, default: '' },
     negativeMarks: { type: Number, default: 0 },
     maxScore: { type: Number, default: 0 },
     correctCount: { type: Number, default: 0 },

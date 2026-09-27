@@ -14,7 +14,7 @@ import { ApiError, LANGUAGE_OPTIONS, STARTER_CODE, api, clock, errorMessage, let
 import { INTEGRITY_EVENTS, type IntegrityEvent } from '@/lib/integrity'
 import { cn } from '@/lib/utils'
 
-type McqQuestion = { number: number; type: 'mcq' | 'tf'; text: string; options: string[]; topic: string }
+type McqQuestion = { number: number; type: 'mcq' | 'tf'; text: string; options: string[]; topic: string; marks?: number }
 type CodingQuestion = { number: number; type: 'coding'; title: string; text: string; topic: string; inputFormat: string; outputFormat: string; constraints: string; samples: Sample[]; points: number; language: string; starterCode: string }
 type Question = McqQuestion | CodingQuestion
 type CodeAnswer = { language: string; code: string }
@@ -291,7 +291,7 @@ export default function ExamPage({ params }: { params: Promise<{ id: string }> }
               onPrev={current > 0 ? () => go(current - 1) : undefined} onNext={current < questions.length - 1 ? () => go(current + 1) : undefined} position={`${current + 1} / ${questions.length}`} />
           ) : (
             <McqView question={question} total={questions.length} selected={typeof answers[current] === 'number' ? (answers[current] as number) : null}
-              marks={paper.room.marksPerQuestion} negative={paper.room.negativeMarks} flagged={flagged.includes(question.number)}
+              marks={question.marks ?? paper.room.marksPerQuestion} negative={paper.room.negativeMarks} flagged={flagged.includes(question.number)}
               onSelect={option => setAnswer(current, option, 150)} onClear={() => setAnswer(current, null, 150)} onFlag={() => toggleFlag(question.number)}
               onPrev={current > 0 ? () => go(current - 1) : undefined}
               onNext={() => (current < questions.length - 1 ? go(current + 1) : setFinishOpen(true))}

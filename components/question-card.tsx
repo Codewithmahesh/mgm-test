@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
-import { DifficultyBadge, TypeBadge } from '@/components/common'
+import { BloomBadge, TypeBadge } from '@/components/common'
 import { letter, type DraftQuestion } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -27,7 +27,7 @@ export function QuestionCard({ question, index, actions, meta, defaultOpen = fal
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <TypeBadge type={question.type} />
-            <DifficultyBadge difficulty={question.difficulty} />
+            <BloomBadge level={question.bloom} />
             {question.set && <span className="rounded border border-border px-1.5 py-px text-[11px] font-semibold text-muted-foreground">Set {question.set}</span>}
             {question.topic && <span className="text-xs text-muted-foreground">{question.topic}</span>}
             {question.type === 'coding' && question.points != null && <span className="text-xs text-muted-foreground">· {question.points} marks</span>}

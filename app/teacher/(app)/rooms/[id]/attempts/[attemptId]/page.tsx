@@ -15,14 +15,14 @@ import { api, errorMessage, formatDate, formatDuration, languageLabel, letter, t
 import { cn } from '@/lib/utils'
 
 type Item =
-  | { index: number; questionId: string; type: 'mcq' | 'tf'; text: string; options: string[]; correctIndex: number | null; selected: number | null; explanation: string }
+  | { index: number; questionId: string; type: 'mcq' | 'tf'; text: string; options: string[]; correctIndex: number | null; selected: number | null; explanation: string; marks?: number; bloom?: string | null }
   | { index: number; questionId: string; type: 'coding'; title: string; text: string; points: number; samples: Sample[]; answer: { language: string; code: string } | null; marks: number | null; feedback: string }
   | { index: number; questionId: string; type: 'removed'; text: string }
 
 type Detail = {
   room: { id: string; title: string; code: string; marksPerQuestion: number; negativeMarks: number; maxViolations: number }
   integrity: { flags: Flags; violations: number; score: number; level: RiskLevel; events: { type: IntegrityEvent; at: string; detail: string }[]; ipAddresses: string[]; userAgent: string }
-  attempt: { id: string; studentName: string; studentEmail: string; rollNumber: string; prn: string; className: string; status: 'in_progress' | 'submitted'; autoSubmitted: boolean; autoSubmitReason: string; startedAt: string; submittedAt: string | null; tabSwitches: number; mcqScore: number; codingScore: number; codingPending: number; correctCount: number; wrongCount: number; score: number; maxScore: number }
+  attempt: { id: string; studentName: string; studentEmail: string; rollNumber: string; prn: string; className: string; set: string; status: 'in_progress' | 'submitted'; autoSubmitted: boolean; autoSubmitReason: string; startedAt: string; submittedAt: string | null; tabSwitches: number; mcqScore: number; codingScore: number; codingPending: number; correctCount: number; wrongCount: number; score: number; maxScore: number }
   items: Item[]
 }
 
@@ -75,7 +75,7 @@ export default function AttemptReviewPage({ params }: { params: Promise<{ id: st
         <div className="mt-1.5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl font-medium tracking-tight">{attempt.studentName}</h1>
-            <p className="mt-1 text-[13px] text-muted-foreground">{[attempt.rollNumber && `Roll ${attempt.rollNumber}`, attempt.prn && `PRN ${attempt.prn}`, attempt.className, attempt.studentEmail].filter(Boolean).join(' · ')}</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">{[attempt.set && `Set ${attempt.set}`, attempt.rollNumber && `Roll ${attempt.rollNumber}`, attempt.prn && `PRN ${attempt.prn}`, attempt.className, attempt.studentEmail].filter(Boolean).join(' · ')}</p>
           </div>
           <div className="flex gap-2">
             {attempt.status === 'submitted' && <Button variant="outline" onClick={() => setReopenOpen(true)}><PlayCircle />Allow to continue</Button>}
@@ -99,7 +99,7 @@ export default function AttemptReviewPage({ params }: { params: Promise<{ id: st
                 <div className="p-5">
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-sm leading-6"><span className="mr-2 font-mono text-xs text-subtle">Q{item.index + 1}</span>{item.text}</p>
-                    {item.selected === null ? <Badge><Minus className="size-3" />Skipped</Badge> : item.selected === item.correctIndex ? <Badge tone="green"><Check className="size-3" />+{room.marksPerQuestion}</Badge> : <Badge tone="red"><X className="size-3" />{room.negativeMarks ? `−${room.negativeMarks}` : '0'}</Badge>}
+                    {item.selected === null ? <Badge><Minus className="size-3" />Skipped</Badge> : item.selected === item.correctIndex ? <Badge tone="green"><Check className="size-3" />+{item.marks ?? room.marksPerQuestion}</Badge> : <Badge tone="red"><X className="size-3" />{room.negativeMarks ? `−${room.negativeMarks}` : '0'}</Badge>}
                   </div>
                   <ul className="mt-3 grid gap-1.5 sm:grid-cols-2">
                     {item.options.map((option, i) => {

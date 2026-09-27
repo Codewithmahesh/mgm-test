@@ -22,7 +22,7 @@ export const PATCH = handler(async (request: Request, context: Context) => {
   const previousRoom = question.room ? String(question.room) : null
   const before = JSON.stringify([question.type, question.options, question.correctIndex])
 
-  if ('text' in body || 'options' in body || 'answer' in body || 'correctIndex' in body || 'type' in body) {
+  if (['text', 'options', 'answer', 'correctIndex', 'type', 'bloom', 'set', 'topic', 'explanation'].some(key => key in body)) {
     const result = normalizeQuestion({ ...serializeQuestion(question.toObject()), ...body })
     if (typeof result === 'string') throw new HttpError(400, `This question ${result}.`)
     question.set(result)

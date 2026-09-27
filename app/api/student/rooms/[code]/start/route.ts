@@ -25,7 +25,7 @@ export const POST = handler(async (_request: Request, context: Context) => {
     if (request?.status !== 'admitted') throw new HttpError(403, request?.status === 'pending' ? 'Your faculty has not admitted you yet. Please wait.' : 'Request to join first; your faculty will admit you.', 'not_admitted')
   }
 
-  const questions = await dealQuestions(room)
+  const { questions, marks, set } = await dealQuestions(room)
   if (!questions.length) throw new HttpError(409, "This exam doesn't have any questions yet. Let your faculty know.")
 
   const startedAt = new Date()
@@ -41,6 +41,8 @@ export const POST = handler(async (_request: Request, context: Context) => {
       startedAt,
       endsAt: new Date(startedAt.getTime() + room.durationMinutes * 60_000),
       marksPerQuestion: room.marksPerQuestion,
+      questionMarks: marks,
+      setLabel: set,
       negativeMarks: room.negativeMarks ?? 0,
       lastSeenAt: startedAt,
     })

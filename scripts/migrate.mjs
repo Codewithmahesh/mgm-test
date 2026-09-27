@@ -1,6 +1,7 @@
 // One-time, non-destructive upgrade of data created by the earlier backend.
 // Run with: npm run db:migrate
 //  - gives every question an owning `teacher` (taken from its exam room) so it shows in the question bank
+//  - renames legacy question `set` fields to `setLabel` (avoids shadowing Mongoose's document.set())
 //  - lets faculty add students by email only (studentCode no longer required)
 //  - replaces the old unique (room, student) attempt index, which blocked students who aren't on the roster,
 //    with a unique (room, studentEmail) index
@@ -21,6 +22,19 @@ for (const room of rooms) {
   backfilled += result.modifiedCount
 }
 console.log(`Questions linked to their teacher: ${backfilled}`)
+
+const legacySetLabels = await db.collection('questions').updateMany(
+  {
+    set: { $exists: true },
+    $or: [{ setLabel: { $exists: false } }, { setLabel: null }, { setLabel: '' }],
+  },
+  { $rename: { set: 'setLabel' } },
+)
+const staleSetFields = await db.collection('questions').updateMany(
+  { set: { $exists: true } },
+  { $unset: { set: '' } },
+)
+console.log(`Question set labels migrated: ${legacySetLabels.modifiedCount + staleSetFields.modifiedCount}`)
 
 const orphans = await db.collection('questions').countDocuments({ teacher: { $exists: false } })
 if (orphans) console.log(`Questions whose room no longer exists (left untouched): ${orphans}`)

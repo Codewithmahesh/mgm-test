@@ -61,12 +61,12 @@ export default function TeacherDashboard() {
   const waitingRooms = rooms.filter(r => (r.waiting ?? 0) > 0)
   const waitingTotal = waitingRooms.reduce((sum, r) => sum + r.waiting, 0)
   const attention = [
-    waitingTotal > 0 && { icon: Users, tone: 'red', title: `${waitingTotal} student${waitingTotal === 1 ? '' : 's'} waiting to join`, text: waitingRooms.length === 1 ? `In ${waitingRooms[0].title}. Admit them from the waiting room.` : `Across ${waitingRooms.length} rooms. Admit them from the waiting room.`, href: `/teacher/rooms/${waitingRooms[0]?.id}?tab=participants` },
-    stats.pendingReview > 0 && { icon: ClipboardCheck, tone: 'violet', title: `${stats.pendingReview} paper${stats.pendingReview === 1 ? '' : 's'} to grade`, text: 'Coding answers are waiting for marks.', href: `/teacher/rooms/${rooms.find(r => r.pendingReview > 0)?.id}?tab=leaderboard` },
-    derived.flagged > 0 && { icon: ShieldAlert, tone: 'red', title: `${derived.flagged} student${derived.flagged === 1 ? '' : 's'} flagged`, text: 'Possible cheating: tab switches, pasting, second device…', href: `/teacher/rooms/${rooms.find(r => r.flagged > 0)?.id}?tab=participants` },
-    ...derived.notReady.slice(0, 3).map(r => ({ icon: AlertTriangle, tone: 'amber', title: `${r.title} isn't ready`, text: `Pool has ${r.mcqPoolSize}/${r.questionsPerStudent} MCQs${r.codingQuestions ? `, ${r.codingPoolSize}/${r.codingQuestions} coding` : ''}.`, href: `/teacher/rooms/${r.id}?tab=questions` })),
-    derived.drafts.length > 0 && { icon: DoorOpen, tone: 'blue', title: `${derived.drafts.length} draft room${derived.drafts.length === 1 ? '' : 's'}`, text: 'Open a room when you are ready for students to join.', href: '/teacher/rooms' },
-  ].filter(Boolean) as { icon: React.ComponentType<{ className?: string }>; tone: string; title: string; text: string; href: string }[]
+    waitingTotal > 0 && { key: 'waiting', icon: Users, tone: 'red', title: `${waitingTotal} student${waitingTotal === 1 ? '' : 's'} waiting to join`, text: waitingRooms.length === 1 ? `In ${waitingRooms[0].title}. Admit them from the waiting room.` : `Across ${waitingRooms.length} rooms. Admit them from the waiting room.`, href: `/teacher/rooms/${waitingRooms[0]?.id}?tab=participants` },
+    stats.pendingReview > 0 && { key: 'grading', icon: ClipboardCheck, tone: 'violet', title: `${stats.pendingReview} paper${stats.pendingReview === 1 ? '' : 's'} to grade`, text: 'Coding answers are waiting for marks.', href: `/teacher/rooms/${rooms.find(r => r.pendingReview > 0)?.id}?tab=leaderboard` },
+    derived.flagged > 0 && { key: 'flagged', icon: ShieldAlert, tone: 'red', title: `${derived.flagged} student${derived.flagged === 1 ? '' : 's'} flagged`, text: 'Possible cheating: tab switches, pasting, second device…', href: `/teacher/rooms/${rooms.find(r => r.flagged > 0)?.id}?tab=participants` },
+    ...derived.notReady.slice(0, 3).map(r => ({ key: `not-ready-${r.id}`, icon: AlertTriangle, tone: 'amber', title: `${r.title} isn't ready`, text: `Pool has ${r.mcqPoolSize}/${r.questionsPerStudent} MCQs${r.codingQuestions ? `, ${r.codingPoolSize}/${r.codingQuestions} coding` : ''}.`, href: `/teacher/rooms/${r.id}?tab=questions` })),
+    derived.drafts.length > 0 && { key: 'drafts', icon: DoorOpen, tone: 'blue', title: `${derived.drafts.length} draft room${derived.drafts.length === 1 ? '' : 's'}`, text: 'Open a room when you are ready for students to join.', href: '/teacher/rooms' },
+  ].filter(Boolean) as { key: string; icon: React.ComponentType<{ className?: string }>; tone: string; title: string; text: string; href: string }[]
 
   return (
     <div className="flex flex-col gap-6">
@@ -133,7 +133,7 @@ export default function TeacherDashboard() {
               {attention.map(item => {
                 const tone = { violet: 'bg-violet-soft text-violet', red: 'bg-danger-soft text-danger', amber: 'bg-warning-soft text-warning', blue: 'bg-primary-soft text-primary' }[item.tone]
                 return (
-                  <li key={item.title}>
+                  <li key={item.key}>
                     <Link href={item.href} className="group flex items-start gap-3 rounded-lg p-3 transition-colors hover:bg-muted">
                       <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', tone)}><item.icon className="size-4" /></span>
                       <span className="min-w-0 flex-1"><span className="block text-sm font-medium">{item.title}</span><span className="block text-xs leading-5 text-muted-foreground">{item.text}</span></span>

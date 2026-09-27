@@ -20,13 +20,15 @@ export const GET = handler(async (_request: Request, context: Context) => {
     room: { title: room?.title ?? 'Exam', code: room?.code ?? '', instructions: room?.instructions ?? '', marksPerQuestion: room?.marksPerQuestion ?? 1, negativeMarks: room?.negativeMarks ?? 0 },
     proctoring: { requireFullscreen: room?.requireFullscreen ?? true, blockCopyPaste: room?.blockCopyPaste ?? true, maxViolations: room?.maxViolations ?? 0, ...integrityOf(attempt) },
     autoSubmitReason: attempt.autoSubmitReason ?? '',
+    // The question set is disclosed only after the exam is submitted.
+    set: attempt.status === 'submitted' ? attempt.setLabel ?? '' : '',
     serverNow: new Date().toISOString(),
     startedAt: attempt.startedAt.toISOString(),
     endsAt: attempt.endsAt.toISOString(),
   }
   if (attempt.status === 'submitted') return NextResponse.json(base)
 
-  const docs = await Question.find({ _id: { $in: attempt.questions } }).select('type text options topic title inputFormat outputFormat constraints samples points language starterCode').lean()
+  const docs = await Question.find({ _id: { $in: attempt.questions } }).select('type text options topic bloom title inputFormat outputFormat constraints samples points language starterCode').lean()
   const byId = new Map(docs.map(q => [String(q._id), q]))
   const questions = attempt.questions.map((id, index) => {
     const q = byId.get(String(id))
@@ -39,7 +41,7 @@ export const GET = handler(async (_request: Request, context: Context) => {
         points: q.points ?? room?.codingMarks ?? 10, language: q.language || '', starterCode: q.starterCode ?? '',
       }
     }
-    return { number: index + 1, type: q.type, text: q.text, options: q.options, topic: q.topic ?? '' }
+    return { number: index + 1, type: q.type, text: q.text, options: q.options, topic: q.topic ?? '', marks: attempt.questionMarks?.[index] ?? attempt.marksPerQuestion }
   })
   return NextResponse.json({ ...base, questions, answers: attempt.answers, flagged: attempt.flagged, tabSwitches: attempt.tabSwitches ?? 0 })
 })

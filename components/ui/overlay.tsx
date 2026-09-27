@@ -92,7 +92,7 @@ export function MenuItem({ icon: Icon, danger, className, ...props }: React.Butt
 /* ---------- Toasts & confirm prompts ---------- */
 
 type Toast = { id: number; tone: 'success' | 'error' | 'info'; message: string }
-type ConfirmOptions = { title: string; description?: React.ReactNode; confirmLabel?: string; tone?: 'default' | 'danger' }
+type ConfirmOptions = { title: string; description?: React.ReactNode; confirmLabel?: string; cancelLabel?: string; tone?: 'default' | 'danger' }
 
 const FeedbackContext = React.createContext<{ toast: (message: string, tone?: Toast['tone']) => void; confirm: (options: ConfirmOptions) => Promise<boolean> } | null>(null)
 
@@ -123,7 +123,7 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
       </div>
       <Dialog open={Boolean(prompt)} onClose={() => close(false)} title={prompt?.title} description={prompt?.description} size="sm"
         footer={<>
-          <button onClick={() => close(false)} className="h-9 rounded-md border border-border-strong bg-card px-3.5 text-sm font-medium hover:bg-muted">Cancel</button>
+          <button onClick={() => close(false)} className="h-9 rounded-md border border-border-strong bg-card px-3.5 text-sm font-medium hover:bg-muted">{prompt?.cancelLabel ?? 'Cancel'}</button>
           <button autoFocus onClick={() => close(true)} className={cn('h-9 rounded-md px-3.5 text-sm font-medium text-white', prompt?.tone === 'danger' ? 'bg-danger hover:bg-danger-hover' : 'bg-primary hover:bg-primary-hover')}>{prompt?.confirmLabel ?? 'Confirm'}</button>
         </>}
       />

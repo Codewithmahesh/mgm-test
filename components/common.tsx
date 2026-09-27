@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { BLOOM_INFO, type BloomLevel } from '@/lib/bloom'
 import { Check, Copy } from 'lucide-react'
 import { Badge } from '@/components/ui/card'
 import { statusMeta, type RoomStatus } from '@/lib/api'
@@ -32,8 +33,8 @@ export function TypeBadge({ type }: { type: 'mcq' | 'tf' | 'coding' | string }) 
   return <Badge tone="blue">MCQ</Badge>
 }
 
-export function DifficultyBadge({ difficulty }: { difficulty: string | null | undefined }) {
-  if (!difficulty) return null
-  const tone = difficulty === 'easy' ? 'green' : difficulty === 'hard' ? 'red' : 'amber'
-  return <Badge tone={tone} className="capitalize">{difficulty}</Badge>
+export function BloomBadge({ level }: { level: string | null | undefined }) {
+  if (!level || !(level in BLOOM_INFO)) return null
+  const info = BLOOM_INFO[level as BloomLevel]
+  return <Badge tone={info.tone} className="font-medium" ><span className="font-mono">L{info.n}</span>{info.label}</Badge>
 }

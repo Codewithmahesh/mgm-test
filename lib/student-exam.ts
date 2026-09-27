@@ -1,4 +1,6 @@
 import 'server-only'
+import { paperMarks } from './bloom'
+import { cleanPlan } from './rooms'
 import { HttpError, type requireStudent } from './auth'
 import { Attempt, ExamRoom, JoinRequest, LANGUAGES, Question, Teacher, classLabel, isObjectId } from './models'
 
@@ -72,6 +74,9 @@ export async function lobbyView(room: RoomLean, student: StudentDoc) {
       marksPerQuestion: room.marksPerQuestion,
       negativeMarks: room.negativeMarks ?? 0,
       codingMarks: room.codingMarks ?? 10,
+      mcqMarks: paperMarks({ ...room, bloomPlan: cleanPlan(room.bloomPlan) }).mcq,
+      totalMarks: paperMarks({ ...room, bloomPlan: cleanPlan(room.bloomPlan) }).total,
+      marksVary: cleanPlan(room.bloomPlan).some(row => row.marks !== room.marksPerQuestion),
       startsAt: room.startsAt ?? null,
       status: room.status,
       requireFullscreen: room.requireFullscreen ?? true,

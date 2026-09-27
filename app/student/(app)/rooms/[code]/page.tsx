@@ -11,7 +11,7 @@ import { api, errorMessage, formatDate } from '@/lib/api'
 import { lockExamKeys } from '@/components/use-proctoring'
 
 type Lobby = {
-  room: { code: string; title: string; description: string; instructions: string; teacher: string; department: string; durationMinutes: number; mcqCount: number; codingCount: number; marksPerQuestion: number; negativeMarks: number; codingMarks: number; startsAt: string | null; status: string; requireFullscreen: boolean; blockCopyPaste: boolean; maxViolations: number; requireApproval: boolean }
+  room: { code: string; title: string; description: string; instructions: string; teacher: string; department: string; durationMinutes: number; mcqCount: number; codingCount: number; marksPerQuestion: number; mcqMarks: number; totalMarks: number; marksVary: boolean; negativeMarks: number; codingMarks: number; startsAt: string | null; status: string; requireFullscreen: boolean; blockCopyPaste: boolean; maxViolations: number; requireApproval: boolean }
   request: { status: 'pending' | 'admitted' | 'rejected'; requestedAt: string; decidedAt: string | null } | null
   attempt: { id: string; status: string; endsAt: string } | null
   blocker: string | null
@@ -69,7 +69,7 @@ export default function LobbyPage({ params }: { params: Promise<{ code: string }
   if (!data) return <PageLoader />
   const { room, attempt, blocker, request } = data
   const needsAdmission = room.requireApproval && request?.status !== 'admitted'
-  const total = room.mcqCount * room.marksPerQuestion + room.codingCount * room.codingMarks
+  const total = room.totalMarks ?? room.mcqCount * room.marksPerQuestion + room.codingCount * room.codingMarks
   const rules = room.instructions.split('\n').map(line => line.trim()).filter(Boolean)
 
   return (
@@ -85,7 +85,7 @@ export default function LobbyPage({ params }: { params: Promise<{ code: string }
       <div className="mt-6 grid gap-3 sm:grid-cols-4">
         {[
           { icon: Clock3, label: 'Duration', value: `${room.durationMinutes} min` },
-          { icon: ListChecks, label: 'MCQs', value: room.mcqCount ? `${room.mcqCount} × ${room.marksPerQuestion}` : 'None' },
+          { icon: ListChecks, label: 'MCQs', value: room.mcqCount ? (room.marksVary ? `${room.mcqCount} · ${room.mcqMarks} marks` : `${room.mcqCount} × ${room.marksPerQuestion}`) : 'None' },
           { icon: Code2, label: 'Coding', value: room.codingCount ? `${room.codingCount} × ${room.codingMarks}` : 'None' },
           { icon: Trophy, label: 'Total marks', value: total },
         ].map(item => (

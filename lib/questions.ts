@@ -1,4 +1,5 @@
-import { DIFFICULTIES, type QuestionDoc } from './models'
+import { normalizeBloom, type BloomLevel } from './bloom'
+import type { QuestionDoc } from './models'
 
 export type Sample = { input: string; output: string; explanation: string }
 
@@ -14,8 +15,8 @@ export type QuestionInput = {
   options: string[]
   correctIndex: number | null
   topic: string
-  difficulty: (typeof DIFFICULTIES)[number] | null
-  set: string
+  bloom: BloomLevel | null
+  setLabel: string
   explanation: string
   language: string
   starterCode: string
@@ -54,7 +55,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   answer: ['answer', 'correct', 'correctanswer', 'correctoption', 'key'],
   type: ['type', 'questiontype'],
   topic: ['topic', 'subject', 'chapter'],
-  difficulty: ['difficulty', 'level'],
+  bloom: ['bloom', 'bloomlevel', 'bloomslevel', 'bloomstaxonomy', 'taxonomy', 'taxonomylevel', 'level', 'bl', 'cognitivelevel'],
   set: ['set', 'paperset', 'setname', 'questionset'],
   explanation: ['explanation', 'solution'],
   language: ['language', 'lang'],
@@ -90,10 +91,6 @@ function normalizeType(value: string | undefined, options: string[]): QuestionIn
   return 'mcq'
 }
 
-function normalizeDifficulty(value: unknown): QuestionInput['difficulty'] {
-  const level = String(value ?? '').toLowerCase().trim()
-  return (DIFFICULTIES as readonly string[]).includes(level) ? (level as QuestionInput['difficulty']) : null
-}
 
 /** "set b", "B", "Set-B" → "B". */
 export function normalizeSet(value: unknown) {
@@ -109,8 +106,8 @@ export function normalizeQuestion(raw: Record<string, unknown>): QuestionInput |
   const base = {
     text: text.slice(0, 5000),
     topic: String(raw.topic ?? '').trim().slice(0, 120),
-    difficulty: normalizeDifficulty(raw.difficulty),
-    set: normalizeSet(raw.set),
+    bloom: normalizeBloom(raw.bloom),
+    setLabel: normalizeSet(raw.set ?? raw.setLabel),
     explanation: String(raw.explanation ?? '').trim().slice(0, 5000),
   }
   const noCoding = { title: '', inputFormat: '', outputFormat: '', constraints: '', samples: [] as Sample[], points: null }
@@ -162,7 +159,7 @@ export function questionsFromCsv(csv: string) {
       answer: get('answer'),
       type: get('type') || undefined,
       topic: get('topic'),
-      difficulty: get('difficulty'),
+      bloom: get('bloom'),
       set: get('set'),
       explanation: get('explanation'),
       language: get('language'),
@@ -180,6 +177,11 @@ export function questionsFromCsv(csv: string) {
   return { questions, errors }
 }
 
+/** A normalized question in the shape the client edits (`set` rather than the stored `setLabel`). */
+export function toDraft({ setLabel, ...question }: QuestionInput) {
+  return { ...question, set: setLabel }
+}
+
 /** Teacher view of a question, including the answer. */
 export function serializeQuestion(q: QuestionDoc) {
   return {
@@ -190,8 +192,8 @@ export function serializeQuestion(q: QuestionDoc) {
     options: q.options,
     correctIndex: q.correctIndex,
     topic: q.topic ?? '',
-    difficulty: q.difficulty ?? null,
-    set: q.set ?? '',
+    bloom: q.bloom ?? null,
+    set: q.setLabel ?? '',
     explanation: q.explanation ?? '',
     language: q.language ?? '',
     starterCode: q.starterCode ?? '',

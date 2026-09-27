@@ -4,7 +4,7 @@ import { refreshPool, submitAttempt } from '@/lib/exams'
 import { Attempt, JoinRequest, Question, isObjectId } from '@/lib/models'
 import { copyOf, serializeQuestion } from '@/lib/questions'
 import { poolProblems, type PaperConfig } from '@/lib/paper-rules'
-import { findTeacherRoom, roomSettings, withRoomStats } from '@/lib/rooms'
+import { assertPaperSettings, findTeacherRoom, roomSettings, withRoomStats } from '@/lib/rooms'
 
 type Context = { params: Promise<{ id: string }> }
 
@@ -28,9 +28,10 @@ export const PATCH = handler(async (request: Request, context: Context) => {
   const room = await findTeacherRoom(teacher._id, (await context.params).id)
   const body = await readJson(request)
   const settings = roomSettings(body, true)
+  assertPaperSettings({ ...room.toObject(), ...settings } as Parameters<typeof assertPaperSettings>[0])
 
   if ((settings.status ?? room.status) === 'open') {
-    const pool = await Question.find({ room: room._id }).select('type difficulty set').lean()
+    const pool = (await Question.find({ room: room._id }).select('type bloom setLabel').lean()).map(q => ({ type: q.type, bloom: q.bloom, set: q.setLabel }))
     const config = { ...room.toObject(), ...settings } as PaperConfig
     const wantMcq = Number(config.questionsPerStudent)
     const wantCoding = Number(config.codingQuestions ?? 0)

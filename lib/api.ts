@@ -1,5 +1,7 @@
 // Client-side fetch helper and shared types. JSON in, JSON out; throws an Error with the server's message.
 
+import type { BloomLevel, BloomPlan } from './bloom'
+
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string) {
     super(message)
@@ -64,11 +66,10 @@ export type Room = {
   flagged: number
   waiting: number
   paperMode: 'random' | 'sets'
-  difficultyMix: DifficultyMix | null
+  setCount: number
+  bloomPlan: BloomPlan
   averagePercent: number | null
 }
-
-export type DifficultyMix = { easy: number; medium: number; hard: number }
 
 export type Sample = { input: string; output: string; explanation: string }
 
@@ -78,7 +79,7 @@ export type DraftQuestion = {
   options: string[]
   correctIndex: number | null
   topic: string
-  difficulty: 'easy' | 'medium' | 'hard' | null
+  bloom: BloomLevel | null
   set: string
   explanation: string
   title: string

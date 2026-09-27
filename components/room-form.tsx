@@ -5,7 +5,10 @@ import { Clock3, Code2, Layers, ListChecks, Scale, Shuffle, Trophy } from 'lucid
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'
 import { Alert, Field, Input, Select, Textarea } from '@/components/ui/form'
+import { useFeedback } from '@/components/ui/overlay'
+import { BloomPlanEditor, draftCount, draftToPlan, emptyPlanDraft, planToDraft, type PlanDraft } from '@/components/bloom-plan'
 import { api, type Classroom, type Room } from '@/lib/api'
+import { paperMarks, setNames } from '@/lib/bloom'
 import { cn } from '@/lib/utils'
 
 export type RoomFormValues = {
@@ -26,10 +29,9 @@ export type RoomFormValues = {
   maxViolations: string
   requireApproval: boolean
   paperMode: 'random' | 'sets'
-  mixMode: 'auto' | 'fixed'
-  mixEasy: string
-  mixMedium: string
-  mixHard: string
+  setCount: string
+  bloomMode: 'auto' | 'plan'
+  bloomPlan: PlanDraft
 }
 
 const DEFAULT_INSTRUCTIONS = [
@@ -40,7 +42,7 @@ const DEFAULT_INSTRUCTIONS = [
 ].join('\n')
 
 export function emptyRoomValues(): RoomFormValues {
-  return { title: '', description: '', instructions: DEFAULT_INSTRUCTIONS, durationMinutes: '60', questionsPerStudent: '20', codingQuestions: '0', marksPerQuestion: '1', negativeMarks: '0', codingMarks: '10', startsAt: '', showResults: 'after_end', allowedClassrooms: [], requireFullscreen: true, blockCopyPaste: true, maxViolations: '0', requireApproval: true, paperMode: 'random', mixMode: 'auto', mixEasy: '6', mixMedium: '8', mixHard: '6' }
+  return { title: '', description: '', instructions: DEFAULT_INSTRUCTIONS, durationMinutes: '60', questionsPerStudent: '20', codingQuestions: '0', marksPerQuestion: '1', negativeMarks: '0', codingMarks: '10', startsAt: '', showResults: 'after_end', allowedClassrooms: [], requireFullscreen: true, blockCopyPaste: true, maxViolations: '0', requireApproval: true, paperMode: 'random', setCount: '3', bloomMode: 'auto', bloomPlan: emptyPlanDraft() }
 }
 
 function toLocalInput(value: string | null) {
@@ -56,25 +58,24 @@ export function roomToValues(room: Room): RoomFormValues {
     marksPerQuestion: String(room.marksPerQuestion), negativeMarks: String(room.negativeMarks), codingMarks: String(room.codingMarks),
     startsAt: toLocalInput(room.startsAt), showResults: room.showResults, allowedClassrooms: room.allowedClassrooms,
     requireFullscreen: room.requireFullscreen, blockCopyPaste: room.blockCopyPaste, maxViolations: String(room.maxViolations), requireApproval: room.requireApproval,
-    paperMode: room.paperMode, mixMode: room.difficultyMix ? 'fixed' : 'auto',
-    mixEasy: String(room.difficultyMix?.easy ?? 6), mixMedium: String(room.difficultyMix?.medium ?? 8), mixHard: String(room.difficultyMix?.hard ?? 6),
+    paperMode: room.paperMode, setCount: String(room.setCount || 3),
+    bloomMode: room.bloomPlan.length ? 'plan' : 'auto', bloomPlan: planToDraft(room.bloomPlan, room.marksPerQuestion),
   }
 }
 
 export function valuesToPayload(values: RoomFormValues) {
+  const { bloomMode, bloomPlan, ...rest } = values
   return {
-    ...values,
+    ...rest,
     durationMinutes: Number(values.durationMinutes), questionsPerStudent: Number(values.questionsPerStudent), codingQuestions: Number(values.codingQuestions),
     marksPerQuestion: Number(values.marksPerQuestion), negativeMarks: Number(values.negativeMarks), codingMarks: Number(values.codingMarks),
     maxViolations: Number(values.maxViolations) || 0,
     paperMode: values.paperMode,
-    difficultyMix: values.mixMode === 'fixed' ? { easy: Number(values.mixEasy) || 0, medium: Number(values.mixMedium) || 0, hard: Number(values.mixHard) || 0 } : null,
-    ...(values.mixMode === 'fixed' ? { questionsPerStudent: fixedTotal(values) } : {}),
+    setCount: values.paperMode === 'sets' ? Number(values.setCount) || 0 : 0,
+    bloomPlan: bloomMode === 'plan' ? draftToPlan(bloomPlan) : [],
     startsAt: values.startsAt ? new Date(values.startsAt).toISOString() : null,
   }
 }
-
-const fixedTotal = (values: RoomFormValues) => (Number(values.mixEasy) || 0) + (Number(values.mixMedium) || 0) + (Number(values.mixHard) || 0)
 
 function Choice({ selected, onSelect, icon: Icon, title, text }: { selected: boolean; onSelect: () => void; icon: React.ComponentType<{ className?: string }>; title: string; text: string }) {
   return (
@@ -87,6 +88,7 @@ function Choice({ selected, onSelect, icon: Icon, title, text }: { selected: boo
 }
 
 export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: RoomFormValues; submitLabel: string; onSubmit: (values: RoomFormValues) => Promise<void>; pool?: { mcq: number; coding: number } }) {
+  const { confirm } = useFeedback()
   const [values, setValues] = useState(initial)
   const [classrooms, setClassrooms] = useState<Classroom[]>([])
   const [error, setError] = useState('')
@@ -96,14 +98,26 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
   const set = <K extends keyof RoomFormValues>(key: K, value: RoomFormValues[K]) => setValues(current => ({ ...current, [key]: value }))
   const text = (key: keyof RoomFormValues) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => set(key, event.target.value as never)
 
-  const fixed = values.mixMode === 'fixed'
-  const mcq = fixed ? fixedTotal(values) : Number(values.questionsPerStudent) || 0
+  const usePlan = values.bloomMode === 'plan'
+  const mcq = Number(values.questionsPerStudent) || 0
   const coding = Number(values.codingQuestions) || 0
-  const totalMarks = mcq * (Number(values.marksPerQuestion) || 0) + coding * (Number(values.codingMarks) || 0)
+  const plan = usePlan ? draftToPlan(values.bloomPlan) : []
+  const marks = paperMarks({ questionsPerStudent: mcq, marksPerQuestion: Number(values.marksPerQuestion) || 0, codingQuestions: coding, codingMarks: Number(values.codingMarks) || 0, bloomPlan: plan })
+  const sets = values.paperMode === 'sets' ? Number(values.setCount) || 0 : 0
+  const planOver = usePlan && draftCount(values.bloomPlan) > mcq
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     if (mcq + coding === 0) return setError('Each student needs at least one MCQ or coding problem.')
+    if (planOver) return setError(`The Bloom levels add up to ${draftCount(values.bloomPlan)} questions but each student gets ${mcq}. Increase the question count or lower a level.`)
+    if (values.paperMode === 'sets' && (sets < 2 || sets > 26)) return setError('Choose between 2 and 26 sets, or switch to random papers.')
+    const assigned = usePlan ? draftCount(values.bloomPlan) : mcq
+    if (usePlan && assigned < mcq && !(await confirm({
+      title: 'Bloom plan has unassigned questions',
+      description: <>Your plan assigns <b>{assigned}</b> of <b>{mcq}</b> MCQs. The remaining <b>{mcq - assigned}</b> will be balanced across Bloom&apos;s levels. Continue?</>,
+      confirmLabel: 'Continue',
+      cancelLabel: 'Review plan',
+    }))) return
     setSaving(true)
     setError('')
     try { await onSubmit(values) } catch (err) { setError(err instanceof Error ? err.message : 'Could not save.') } finally { setSaving(false) }
@@ -126,33 +140,39 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
           <CardHeader title="Paper and timing" description="How many questions each student gets, and how they're marked." />
           <div className="grid gap-4 p-5 sm:grid-cols-3">
             <Field label="Duration (minutes)" required htmlFor="duration"><Input id="duration" type="number" min={1} max={600} required value={values.durationMinutes} onChange={text('durationMinutes')} /></Field>
-            <Field label="MCQs per student" required htmlFor="mcq" hint={pool ? `${pool.mcq} in this room's pool` : undefined}><Input id="mcq" type="number" min={0} max={500} required disabled={fixed} value={fixed ? String(mcq) : values.questionsPerStudent} onChange={text('questionsPerStudent')} /></Field>
+            <Field label="MCQs per student" required htmlFor="mcq" hint={pool ? `${pool.mcq} in this room's pool` : undefined}><Input id="mcq" type="number" min={0} max={500} required value={values.questionsPerStudent} onChange={text('questionsPerStudent')} /></Field>
             <Field label="Coding problems per student" htmlFor="coding" hint={pool ? `${pool.coding} in this room's pool` : undefined}><Input id="coding" type="number" min={0} max={20} value={values.codingQuestions} onChange={text('codingQuestions')} /></Field>
-            <Field label="Marks per MCQ" htmlFor="marks"><Input id="marks" type="number" min={0} step={0.25} value={values.marksPerQuestion} onChange={text('marksPerQuestion')} /></Field>
+            <Field label="Marks per MCQ" htmlFor="marks" hint={usePlan ? 'For questions not covered by the Bloom plan.' : undefined}><Input id="marks" type="number" min={0} step={0.25} value={values.marksPerQuestion} onChange={text('marksPerQuestion')} /></Field>
             <Field label="Negative marks per wrong MCQ" htmlFor="neg" hint="0 for no negative marking."><Input id="neg" type="number" min={0} step={0.25} value={values.negativeMarks} onChange={text('negativeMarks')} /></Field>
             <Field label="Marks per coding problem" htmlFor="cmarks" hint="Default; a problem can set its own."><Input id="cmarks" type="number" min={0} step={0.5} value={values.codingMarks} onChange={text('codingMarks')} /></Field>
           </div>
         </Card>
 
         <Card>
-          <CardHeader title="How each paper is made" description="Every student gets the same number of questions at each difficulty, so no one gets an easier or harder paper." />
+          <CardHeader title="How each paper is made" description="Every student gets the same number of questions at each Bloom's level, so no one gets an easier or harder paper." />
           <div className="flex flex-col gap-5 p-5">
             <div className="grid gap-3 sm:grid-cols-2">
               <Choice selected={values.paperMode === 'random'} onSelect={() => set('paperMode', 'random')} icon={Shuffle} title="Random from the pool" text="Each student gets a different random paper drawn from all the room's questions." />
-              <Choice selected={values.paperMode === 'sets'} onSelect={() => set('paperMode', 'sets')} icon={Layers} title="One set per student" text="Students get sets A, B, C… in rotation, so neighbours write different sets. Tag questions with a set, or generate them in sets with AI." />
+              <Choice selected={values.paperMode === 'sets'} onSelect={() => set('paperMode', 'sets')} icon={Layers} title="Question sets (A, B, C…)" text="You make a fixed number of sets; students get them in turn. Their set is revealed after they submit." />
             </div>
-            <div>
-              <p className="text-[13px] font-medium">Difficulty of each paper (MCQs)</p>
-              <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                <Choice selected={!fixed} onSelect={() => set('mixMode', 'auto')} icon={Scale} title="Balanced automatically" text="The pool's easy / medium / hard proportions are applied to every paper, with the same counts for everyone." />
-                <Choice selected={fixed} onSelect={() => set('mixMode', 'fixed')} icon={ListChecks} title="Fixed count per level" text="You choose exactly how many easy, medium and hard MCQs every student gets." />
+            {values.paperMode === 'sets' && (
+              <div className="flex flex-col gap-3 rounded-lg border border-primary-border bg-primary-soft/30 p-4 sm:flex-row sm:items-end sm:gap-5">
+                <Field label="How many sets?" required htmlFor="setCount" className="w-36"><Input id="setCount" type="number" min={2} max={26} required value={values.setCount} onChange={text('setCount')} /></Field>
+                <p className="text-[13px] leading-6 text-muted-foreground sm:pb-1.5">
+                  {sets >= 2 ? <>Sets <b className="font-semibold text-foreground">{setNames(sets).join(', ')}</b>, each with {mcq} MCQs{coding ? ` + ${coding} coding` : ''}. The pool needs {sets * mcq} MCQs{coding ? ` and ${sets * coding} coding problems` : ''} tagged by set, or generate them in sets with AI.</> : 'Enter 2 or more.'}
+                </p>
               </div>
-              {fixed && (
-                <div className="mt-3 flex flex-wrap items-end gap-3">
-                  {([['mixEasy', 'Easy'], ['mixMedium', 'Medium'], ['mixHard', 'Hard']] as const).map(([key, label]) => (
-                    <Field key={key} label={label} className="w-24"><Input type="number" min={0} max={500} value={values[key]} onChange={text(key)} /></Field>
-                  ))}
-                  <p className="pb-2 text-[13px] text-muted-foreground">= <b className="font-semibold text-foreground">{mcq}</b> MCQs per student</p>
+            )}
+            <div>
+              <p className="text-[13px] font-medium">Bloom&apos;s taxonomy levels (MCQs)</p>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <Choice selected={!usePlan} onSelect={() => set('bloomMode', 'auto')} icon={Scale} title="Balanced automatically" text="Every paper follows the pool's mix of levels, with the same counts for everyone and the same marks per MCQ." />
+                <Choice selected={usePlan} onSelect={() => set('bloomMode', 'plan')} icon={ListChecks} title="Questions and marks per level" text="You choose how many questions of each level every student gets, and the marks for each level." />
+              </div>
+              {usePlan && (
+                <div className="mt-3">
+                  <BloomPlanEditor total={mcq} onTotalChange={total => set('questionsPerStudent', String(total))} draft={values.bloomPlan} onChange={draft => set('bloomPlan', draft)}
+                    defaultMarks={Number(values.marksPerQuestion) || 0} unit={values.paperMode === 'sets' ? 'set' : 'paper'} />
                 </div>
               )}
             </div>
@@ -214,10 +234,11 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
           <CardHeader title="Summary" />
           <dl className="flex flex-col gap-3 p-5 text-sm">
             <Row icon={Clock3} label="Duration" value={`${values.durationMinutes || 0} min`} />
-            <Row icon={ListChecks} label="MCQs" value={`${mcq} × ${values.marksPerQuestion || 0}`} />
+            <Row icon={ListChecks} label="MCQs" value={usePlan ? `${mcq} · ${marks.mcq} marks` : `${mcq} × ${values.marksPerQuestion || 0}`} />
             <Row icon={Code2} label="Coding" value={`${coding} × ${values.codingMarks || 0}`} />
             <div className="my-1 border-t border-border" />
-            <Row icon={Trophy} label="Total marks" value={<span className="text-base font-semibold">{totalMarks}</span>} />
+            {sets >= 2 && <Row icon={Layers} label="Sets" value={`${sets} (${setNames(sets)[0]}–${setNames(sets)[sets - 1]})`} />}
+            <Row icon={Trophy} label="Total marks" value={<span className="text-base font-semibold">{marks.total}</span>} />
             {Number(values.negativeMarks) > 0 && <p className="text-xs text-warning">−{values.negativeMarks} for each wrong MCQ</p>}
           </dl>
           <div className="border-t border-border p-4">

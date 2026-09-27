@@ -1,26 +1,31 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, BookOpen, Download, FileText, FileUp, Layers, PenLine, Pencil, Plus, Scale, Search, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react'
+import { ArrowLeft, BookOpen, Download, FileText, FileUp, Layers, PenLine, Pencil, Plus, Search, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react'
 import { QuestionCard } from '@/components/question-card'
 import { QuestionEditor, blankQuestion } from '@/components/question-editor'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/card'
 import { Alert, Checkbox, Field, Input, Select, Textarea } from '@/components/ui/form'
 import { Dialog, useFeedback } from '@/components/ui/overlay'
-import { api, errorMessage, type BankQuestion, type DifficultyMix, type DraftQuestion } from '@/lib/api'
+import { BloomPlanEditor, draftCount, draftToPlan, emptyPlanDraft, planToDraft, type PlanDraft } from '@/components/bloom-plan'
+import { api, errorMessage, type BankQuestion, type DraftQuestion } from '@/lib/api'
+import { BLOOM_INFO, BLOOM_LEVELS, setNames, splitByShares, type BloomLevel, type BloomPlan } from '@/lib/bloom'
 import { cn } from '@/lib/utils'
 
 export type AddMethod = 'ai' | 'csv' | 'manual' | 'bank'
 
 /** What the AI was asked for, so the room's papers can be set up to match. */
-export type GenerationPlan = { sets: string[]; mcqPerSet: number; codingPerSet: number; mix: DifficultyMix | null; applyToRoom: boolean }
+export type GenerationPlan = { sets: string[]; mcqPerSet: number; codingPerSet: number; bloomPlan: BloomPlan | null; applyToRoom: boolean }
+
+/** The room's current paper settings, used as the generator's starting values. */
+export type GeneratorDefaults = { mcq: number; coding: number; marks?: number; bloomPlan?: BloomPlan; setCount?: number }
 
 const CSV_TEMPLATE = [
-  'question,optionA,optionB,optionC,optionD,answer,type,topic,difficulty,set',
-  '"Which data structure uses FIFO order?",Stack,Queue,Tree,Graph,B,mcq,Queues,easy,A',
-  '"A binary search runs in O(log n) time.",True,False,,,A,tf,Searching,easy,B',
-  '"Reverse the given array and print it.",,,,,,coding,Arrays,easy',
+  'question,optionA,optionB,optionC,optionD,answer,type,topic,bloom,set',
+  '"Which data structure uses FIFO order?",Stack,Queue,Tree,Graph,B,mcq,Queues,remember,A',
+  '"A binary search runs in O(log n) time.",True,False,,,A,tf,Searching,understand,B',
+  '"Reverse the given array and print it.",,,,,,coding,Arrays,apply',
 ].join('\n')
 
 /**
@@ -32,7 +37,7 @@ export function AddQuestions({ open, onClose, roomId, initialMethod = 'ai', defa
   onClose: () => void
   roomId?: string | null
   initialMethod?: AddMethod
-  defaults?: { mcq: number; coding: number }
+  defaults?: GeneratorDefaults
   onSaved: (count: number) => void
 }) {
   const { toast } = useFeedback()
@@ -55,13 +60,14 @@ export function AddQuestions({ open, onClose, roomId, initialMethod = 'ai', defa
       const data = await api<{ saved: number; errors: string[] }>('/api/questions', { body: { questions: drafts, room: roomId ?? null, source } })
       let applied = ''
       if (roomId && plan?.applyToRoom) {
-        // Match the room's papers to what was generated: one set per student and/or the fixed difficulty mix.
+        // Match the room's papers to what was generated: one set per student and/or the Bloom's level plan.
         try {
           await api(`/api/rooms/${roomId}`, { method: 'PATCH', body: {
-            ...(plan.sets.length ? { paperMode: 'sets' } : {}),
-            questionsPerStudent: plan.mcqPerSet, codingQuestions: plan.codingPerSet, difficultyMix: plan.mix,
+            ...(plan.sets.length ? { paperMode: 'sets', setCount: plan.sets.length } : {}),
+            questionsPerStudent: plan.mcqPerSet, codingQuestions: plan.codingPerSet,
+            ...(plan.bloomPlan ? { bloomPlan: plan.bloomPlan } : {}),
           } })
-          applied = plan.sets.length ? ` Each student now gets one of sets ${plan.sets.join(', ')}.` : ' Every paper now uses this difficulty mix.'
+          applied = plan.sets.length ? ` Each student now gets one of sets ${plan.sets.join(', ')}.` : " Every paper now uses this Bloom's level plan."
         } catch (err) { toast(`Questions saved, but the room settings were not updated: ${errorMessage(err)}`, 'error') }
       }
       toast(`${data.saved} question${data.saved === 1 ? '' : 's'} added${roomId ? ' to the room' : ' to your bank'}.${applied}`)
@@ -159,87 +165,93 @@ export function AddQuestions({ open, onClose, roomId, initialMethod = 'ai', defa
 
 function levelSummary(questions: DraftQuestion[]) {
   const mcq = questions.filter(q => q.type !== 'coding')
-  const count = (level: string) => mcq.filter(q => q.difficulty === level).length
-  return mcq.length ? `${count('easy')} easy · ${count('medium')} medium · ${count('hard')} hard` : ''
+  const parts = BLOOM_LEVELS.map(level => [level, mcq.filter(q => q.bloom === level).length] as const).filter(([, n]) => n > 0).map(([level, n]) => `L${BLOOM_INFO[level].n} ${BLOOM_INFO[level].label}: ${n}`)
+  return parts.join(' · ')
 }
 
-// Same 30 / 40 / 30 split the server uses for "Mixed".
-function mixedSplit(count: number): [number, number, number] {
-  const exact = [0.3, 0.4, 0.3].map(share => share * count)
-  const split = exact.map(Math.floor) as [number, number, number]
-  let left = count - split[0] - split[1] - split[2]
-  const order = exact.map((value, i) => ({ i, rest: value - Math.floor(value) })).sort((a, b) => b.rest - a.rest || a.i - b.i)
-  for (const { i } of order) { if (left <= 0) break; split[i]++; left-- }
-  return split
-}
+type BloomMode = 'mixed' | 'custom' | BloomLevel
 
-function AiGenerator({ defaults, inRoom, onResult }: { defaults?: { mcq: number; coding: number }; inRoom: boolean; onResult: (questions: DraftQuestion[], plan: GenerationPlan) => void }) {
+function AiGenerator({ defaults, inRoom, onResult }: { defaults?: GeneratorDefaults; inRoom: boolean; onResult: (questions: DraftQuestion[], plan: GenerationPlan) => void }) {
+  const { confirm } = useFeedback()
   const [mode, setMode] = useState<'pdf' | 'text' | 'topic'>('pdf')
   const [pdf, setPdf] = useState<File | null>(null)
   const [text, setText] = useState('')
   const [topic, setTopic] = useState('')
-  const [mcqCount, setMcqCount] = useState(String(Math.min(defaults?.mcq || 10, 60)))
-  const [codingCount, setCodingCount] = useState(String(Math.min(defaults?.coding ?? 0, 10)))
-  const [difficulty, setDifficulty] = useState('mixed')
-  const [mix, setMix] = useState({ easy: '6', medium: '8', hard: '6' })
-  const [sets, setSets] = useState('1')
+  const [mcqCount, setMcqCount] = useState(String(Math.min(defaults?.mcq || 10, 120)))
+  const [codingCount, setCodingCount] = useState(String(Math.min(defaults?.coding ?? 0, 12)))
+  const [bloomMode, setBloomMode] = useState<BloomMode>(defaults?.bloomPlan?.length ? 'custom' : 'mixed')
+  const [draft, setDraft] = useState<PlanDraft>(() => defaults?.bloomPlan?.length ? planToDraft(defaults.bloomPlan, defaults.marks ?? 1) : emptyPlanDraft(defaults?.marks ?? 1))
+  const [useSets, setUseSets] = useState((defaults?.setCount ?? 0) >= 2)
+  const [setCountText, setSetCountText] = useState(String(defaults?.setCount && defaults.setCount >= 2 ? defaults.setCount : 3))
   const [applyToRoom, setApplyToRoom] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
+
+  const perSetMcq = Math.max(0, Math.round(Number(mcqCount) || 0))
+  const perSetCoding = Math.max(0, Math.round(Number(codingCount) || 0))
+  const sets = useSets ? Math.max(0, Math.round(Number(setCountText) || 0)) : 1
+  const custom = bloomMode === 'custom'
+  // Questions per set at each level: the custom plan (anything left over is spread across all levels), an even mix, or one level.
+  const levels = custom
+    ? (() => { const planned = BLOOM_LEVELS.map(level => Math.max(0, Math.round(Number(draft[level].count) || 0))); const extra = splitByShares(Math.max(0, perSetMcq - draftCount(draft))); return planned.map((n, i) => n + extra[i]) })()
+    : bloomMode === 'mixed' ? splitByShares(perSetMcq) : BLOOM_LEVELS.map(level => (level === bloomMode ? perSetMcq : 0))
+  const totalMcq = perSetMcq * Math.max(1, sets)
+  const totalCoding = perSetCoding * Math.max(1, sets)
+  const letters = setNames(sets)
+  const canApply = inRoom && (useSets || custom)
 
   async function generate() {
     setError('')
     if (mode === 'pdf' && !pdf) return setError('Choose a PDF first.')
     if (mode === 'text' && text.trim().length < 50) return setError('Paste at least a paragraph of content.')
     if (mode === 'topic' && !topic.trim()) return setError('Enter a topic.')
-    if (perSetMcq + Number(codingCount) === 0) return setError('Ask for at least one question.')
+    if (perSetMcq + perSetCoding === 0) return setError('Ask for at least one question.')
+    if (custom && draftCount(draft) > perSetMcq) return setError(`The Bloom levels add up to ${draftCount(draft)} questions but you asked for ${perSetMcq}. Increase the question count or lower a level.`)
+    const assigned = custom ? draftCount(draft) : perSetMcq
+    if (custom && assigned < perSetMcq && !(await confirm({
+      title: 'Bloom plan has unassigned questions',
+      description: <>Your plan assigns <b>{assigned}</b> of <b>{perSetMcq}</b> MCQs per set. The remaining <b>{perSetMcq - assigned}</b> will be balanced across Bloom&apos;s levels. Continue?</>,
+      confirmLabel: 'Continue',
+      cancelLabel: 'Review plan',
+    }))) return
+    if (useSets && (sets < 2 || sets > 10)) return setError('Choose between 2 and 10 sets.')
     if (totalMcq > 120) return setError(`That is ${totalMcq} MCQs in total; generate at most 120 at a time.`)
     if (totalCoding > 12) return setError(`That is ${totalCoding} coding problems in total; generate at most 12 at a time.`)
     setLoading(true)
     try {
       const form = new FormData()
       form.append('topic', topic)
-      form.append('mcqCount', mcqCount)
-      form.append('codingCount', codingCount)
-      form.append('difficulty', difficulty)
-      form.append('sets', sets)
-      if (difficulty === 'custom') { form.append('easy', mix.easy); form.append('medium', mix.medium); form.append('hard', mix.hard) }
+      form.append('mcqCount', String(perSetMcq))
+      form.append('codingCount', String(perSetCoding))
+      form.append('sets', String(useSets ? sets : 1))
+      if (bloomMode === 'mixed' || custom) {
+        form.append('bloomMode', 'custom')
+        BLOOM_LEVELS.forEach((level, i) => form.append(level, String(levels[i])))
+      } else form.append('bloomMode', bloomMode)
       if (mode === 'text') form.append('sourceText', text)
       if (mode === 'pdf' && pdf) form.append('pdf', pdf)
       const data = await api<{ questions: DraftQuestion[]; sets: string[] }>('/api/generate-questions', { body: form })
-      const questions = data.questions.map(q => ({ ...q, set: q.set ?? '' }))
-      onResult(questions, {
+      onResult(data.questions.map(q => ({ ...q, set: q.set ?? '' })), {
         sets: data.sets,
         mcqPerSet: perSetMcq,
-        codingPerSet: Number(codingCount) || 0,
-        mix: difficulty === 'custom' ? { easy: Number(mix.easy) || 0, medium: Number(mix.medium) || 0, hard: Number(mix.hard) || 0 } : null,
-        applyToRoom: inRoom && applyToRoom && (data.sets.length > 0 || difficulty === 'custom'),
+        codingPerSet: perSetCoding,
+        bloomPlan: custom ? draftToPlan(draft) : null,
+        applyToRoom: canApply && applyToRoom,
       })
     } catch (err) { setError(errorMessage(err)) } finally { setLoading(false) }
   }
 
-  const setCount = Number(sets) || 1
-  const custom = difficulty === 'custom'
-  const split: [number, number, number] = custom
-    ? [Number(mix.easy) || 0, Number(mix.medium) || 0, Number(mix.hard) || 0]
-    : difficulty === 'mixed' ? mixedSplit(Number(mcqCount) || 0)
-    : [difficulty === 'easy' ? Number(mcqCount) || 0 : 0, difficulty === 'medium' ? Number(mcqCount) || 0 : 0, difficulty === 'hard' ? Number(mcqCount) || 0 : 0]
-  const perSetMcq = split[0] + split[1] + split[2]
-  const totalMcq = perSetMcq * setCount
-  const totalCoding = (Number(codingCount) || 0) * setCount
-  const setLetters = Array.from({ length: setCount }, (_, i) => String.fromCharCode(65 + i)).join(', ')
-
   if (loading) return (
     <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
       <Spinner className="size-7" />
-      <p className="mt-4 text-sm font-medium">Generating {totalMcq + totalCoding} questions{setCount > 1 ? ` in ${setCount} sets` : ''}…</p>
+      <p className="mt-4 text-sm font-medium">Generating {totalMcq + totalCoding} questions{useSets ? ` in ${sets} sets` : ''}…</p>
       <p className="mt-1 text-xs text-muted-foreground">This usually takes {totalMcq > 40 ? '30–90' : '10–40'} seconds{mode === 'pdf' ? ' for a PDF' : ''}.</p>
     </div>
   )
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       {error && <Alert>{error}</Alert>}
       <div className="inline-flex self-start rounded-md border border-border bg-muted p-0.5">
         {([['pdf', 'Upload PDF'], ['text', 'Paste text'], ['topic', 'Topic only']] as const).map(([value, label]) => (
@@ -259,54 +271,62 @@ function AiGenerator({ defaults, inRoom, onResult }: { defaults?: { mcq: number;
       <Field label={mode === 'topic' ? 'Topic' : 'Topic (optional)'} hint={mode === 'topic' ? 'Be specific, e.g. "Stacks and queues in C" rather than "Data structures".' : 'Helps focus the questions.'}>
         <Input value={topic} onChange={e => setTopic(e.target.value)} placeholder="e.g. Binary search trees" />
       </Field>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Field label="Question sets" hint={setCount > 1 ? `Sets ${setLetters}, each equally hard.` : 'One pool of questions.'}>
-          <Select value={sets} onChange={e => setSets(e.target.value)}>
-            <option value="1">No sets</option>
-            {[2, 3, 4, 5, 6].map(n => <option key={n} value={String(n)}>{n} sets ({Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i)).join(', ')})</option>)}
+
+      <section className="flex flex-col gap-3">
+        <StepTitle n={1} title="How many questions" />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={useSets ? 'MCQs in each set' : 'Number of MCQs'}><Input type="number" min={0} max={120} value={mcqCount} onChange={e => setMcqCount(e.target.value)} /></Field>
+          <Field label={useSets ? 'Coding problems in each set' : 'Coding problems'}><Input type="number" min={0} max={12} value={codingCount} onChange={e => setCodingCount(e.target.value)} /></Field>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <StepTitle n={2} title="Bloom's taxonomy levels" />
+        <Field label="Levels of the MCQs" className="sm:max-w-sm">
+          <Select value={bloomMode} onChange={e => setBloomMode(e.target.value as BloomMode)}>
+            <option value="mixed">Mixed across all six levels</option>
+            <option value="custom">Set questions and marks per level</option>
+            {BLOOM_LEVELS.map(level => <option key={level} value={level}>Only L{BLOOM_INFO[level].n} · {BLOOM_INFO[level].label}</option>)}
           </Select>
         </Field>
-        <Field label="Difficulty">
-          <Select value={difficulty} onChange={e => setDifficulty(e.target.value)}>
-            <option value="mixed">Mixed (30% easy · 40% medium · 30% hard)</option>
-            <option value="custom">Custom count per level</option>
-            <option value="easy">All easy</option><option value="medium">All medium</option><option value="hard">All hard</option>
-          </Select>
-        </Field>
-        <Field label={setCount > 1 ? 'Coding problems per set' : 'Coding problems'}><Input type="number" min={0} max={12} value={codingCount} onChange={e => setCodingCount(e.target.value)} /></Field>
-      </div>
-      {custom ? (
-        <div>
-          <p className="mb-2 text-[13px] font-medium">MCQs {setCount > 1 ? 'per set' : ''} by difficulty</p>
-          <div className="grid grid-cols-3 gap-3 sm:max-w-md">
-            {(['easy', 'medium', 'hard'] as const).map(level => (
-              <Field key={level} label={<span className="capitalize">{level}</span>}>
-                <Input type="number" min={0} max={120} value={mix[level]} onChange={e => setMix(current => ({ ...current, [level]: e.target.value }))} />
-              </Field>
-            ))}
+        {custom ? (
+          <BloomPlanEditor total={perSetMcq} onTotalChange={total => setMcqCount(String(total))} draft={draft} onChange={setDraft}
+            showMarks={inRoom} defaultMarks={defaults?.marks ?? 1} unit={useSets ? 'set' : 'paper'} />
+        ) : perSetMcq > 0 && (
+          <p className="text-xs text-muted-foreground">{useSets ? 'Each set' : 'The questions'}: {BLOOM_LEVELS.map((level, i) => (levels[i] ? `L${BLOOM_INFO[level].n} ${BLOOM_INFO[level].label} ${levels[i]}` : '')).filter(Boolean).join(' · ')}</p>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <StepTitle n={3} title="Question sets" />
+        <Checkbox checked={useSets} onChange={e => setUseSets(e.target.checked)} label={<span>Create question sets <span className="text-muted-foreground">(Set A, Set B, … for different students)</span></span>} />
+        {useSets && (
+          <div className="flex flex-col gap-3 rounded-lg border border-primary-border bg-primary-soft/30 p-4 sm:flex-row sm:items-end sm:gap-5">
+            <Field label="How many sets?" className="w-36"><Input type="number" min={2} max={10} value={setCountText} onChange={e => setSetCountText(e.target.value)} /></Field>
+            <p className="text-[13px] leading-6 text-muted-foreground sm:pb-1.5">
+              {sets >= 2 && sets <= 10
+                ? <>Sets <b className="font-semibold text-foreground">{letters.join(', ')}</b>, each with {perSetMcq} MCQs{perSetCoding ? ` + ${perSetCoding} coding` : ''} and the same Bloom&apos;s levels: <b className="font-semibold text-foreground">{totalMcq + totalCoding} questions</b> in total.</>
+                : 'Enter between 2 and 10 sets.'}
+            </p>
           </div>
+        )}
+      </section>
+
+      {canApply && (
+        <div className="rounded-lg border border-border bg-muted/40 px-3.5 py-3">
+          <Checkbox checked={applyToRoom} onChange={e => setApplyToRoom(e.target.checked)}
+            label={<span className="text-[13px]">Use these for this room&apos;s papers: {[useSets && `each student gets one set (${letters.join(', ')}), revealed after submitting`, `${perSetMcq} MCQs${perSetCoding ? ` + ${perSetCoding} coding` : ''} per student`, custom && "the per-level questions and marks above"].filter(Boolean).join('; ')}.</span>} />
         </div>
-      ) : (
-        <Field label={setCount > 1 ? 'MCQs per set' : 'Number of MCQs'} className="sm:max-w-[calc(33%-0.5rem)]"><Input type="number" min={0} max={120} value={mcqCount} onChange={e => setMcqCount(e.target.value)} /></Field>
       )}
-      <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 px-3.5 py-3 text-[13px]">
-        {setCount > 1 ? <Layers className="mt-0.5 size-4 shrink-0 text-primary" /> : <Scale className="mt-0.5 size-4 shrink-0 text-primary" />}
-        <div className="flex flex-col gap-2">
-          <p>
-            {setCount > 1 ? <><b className="font-semibold">{setCount} sets × {perSetMcq} MCQs</b>{Number(codingCount) > 0 && <> + {codingCount} coding</>} = {totalMcq + totalCoding} questions. </> : <><b className="font-semibold">{perSetMcq} MCQs</b>{Number(codingCount) > 0 && <> + {codingCount} coding</>}. </>}
-            {perSetMcq > 0 && <span className="text-muted-foreground">Every {setCount > 1 ? 'set' : 'paper'}: {split[0]} easy · {split[1]} medium · {split[2]} hard.</span>}
-          </p>
-          {inRoom && (setCount > 1 || custom) && (
-            <Checkbox checked={applyToRoom} onChange={e => setApplyToRoom(e.target.checked)}
-              label={<span>{setCount > 1 ? <>Give each student one set ({setLetters}, in rotation) with {perSetMcq} MCQs{Number(codingCount) > 0 ? ` + ${codingCount} coding` : ''}</> : <>Give every student exactly {split[0]} easy, {split[1]} medium and {split[2]} hard MCQs</>}</span>} />
-          )}
-        </div>
-      </div>
       {totalMcq > 120 && <Alert>That is {totalMcq} MCQs in total; the AI can make at most 120 at a time. Use fewer sets or fewer questions per set.</Alert>}
-      {defaults && defaults.mcq > 0 && setCount === 1 && perSetMcq > 0 && perSetMcq <= defaults.mcq && <p className="text-xs text-muted-foreground">Tip: generate more than the {defaults.mcq} each student gets, or use sets, so papers differ between students.</p>}
-      <Button onClick={generate} size="lg" className="self-start"><Wand2 />Generate questions</Button>
+      {defaults && defaults.mcq > 0 && !useSets && perSetMcq > 0 && perSetMcq <= defaults.mcq && <p className="text-xs text-muted-foreground">Tip: generate more than the {defaults.mcq} each student gets, or create sets, so papers differ between students.</p>}
+      <Button onClick={generate} size="lg" className="self-start"><Wand2 />Generate {totalMcq + totalCoding || ''} questions</Button>
     </div>
   )
+}
+
+function StepTitle({ n, title }: { n: number; title: string }) {
+  return <p className="flex items-center gap-2 text-[13px] font-semibold"><span className="flex size-5 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground">{n}</span>{title}</p>
 }
 
 function CsvImport({ onResult }: { onResult: (questions: DraftQuestion[], errors: string[]) => void }) {
@@ -351,7 +371,7 @@ function CsvImport({ onResult }: { onResult: (questions: DraftQuestion[], errors
         <p className="mt-2 font-mono text-xs text-muted-foreground">question, optionA, optionB, optionC, optionD, answer</p>
         <ul className="mt-2 flex list-disc flex-col gap-1 pl-4 text-xs text-muted-foreground">
           <li><span className="text-foreground">answer</span> can be a letter (B), a number (2) or the option&apos;s text.</li>
-          <li>Optional: <span className="font-mono">type</span> (mcq / tf / coding), <span className="font-mono">topic</span>, <span className="font-mono">difficulty</span> (easy / medium / hard), <span className="font-mono">set</span> (A, B… for question sets), <span className="font-mono">explanation</span>.</li>
+          <li>Optional: <span className="font-mono">type</span> (mcq / tf / coding), <span className="font-mono">topic</span>, <span className="font-mono">bloom</span> (1–6 or remember / understand / apply / analyze / evaluate / create), <span className="font-mono">set</span> (A, B… for question sets), <span className="font-mono">explanation</span>.</li>
           <li>Coding rows: <span className="font-mono">title, inputFormat, outputFormat, constraints, sampleInput, sampleOutput, points</span>.</li>
         </ul>
       </div>

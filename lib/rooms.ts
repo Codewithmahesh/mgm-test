@@ -2,6 +2,7 @@ import 'server-only'
 import type { Types } from 'mongoose'
 import { HttpError } from './auth'
 import { INTEGRITY_EVENTS, INTEGRITY_EVENT_TYPES } from './integrity'
+import { BLOOM_INFO, BLOOM_LEVELS, normalizeBloom, type BloomPlan } from './bloom'
 import { Attempt, ExamRoom, JoinRequest, PAPER_MODES, Question, RESULT_VISIBILITY, isObjectId } from './models'
 
 // Sum of violation-type flags on an attempt, as a MongoDB expression.
@@ -28,7 +29,8 @@ type RoomLean = {
   maxViolations?: number | null
   requireApproval?: boolean | null
   paperMode?: string | null
-  difficultyMix?: { easy?: number | null; medium?: number | null; hard?: number | null } | null
+  setCount?: number | null
+  bloomPlan?: { level: string; count?: number | null; marks?: number | null }[] | null
   createdAt?: Date
   updatedAt?: Date
 }
@@ -91,9 +93,8 @@ export function serializeRoom(
     maxViolations: room.maxViolations ?? 0,
     requireApproval: room.requireApproval ?? true,
     paperMode: (room.paperMode === 'sets' ? 'sets' : 'random') as 'random' | 'sets',
-    difficultyMix: room.difficultyMix && (room.difficultyMix.easy || room.difficultyMix.medium || room.difficultyMix.hard)
-      ? { easy: room.difficultyMix.easy ?? 0, medium: room.difficultyMix.medium ?? 0, hard: room.difficultyMix.hard ?? 0 }
-      : null,
+    setCount: room.paperMode === 'sets' ? room.setCount ?? 0 : 0,
+    bloomPlan: cleanPlan(room.bloomPlan),
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     poolSize: questions?.total ?? 0,
@@ -105,6 +106,21 @@ export function serializeRoom(
     flagged: attempts?.flagged ?? 0,
     averagePercent: attempts?.avgPercent == null ? null : Math.round(attempts.avgPercent * 100),
   }
+}
+
+/** A room's Bloom plan with empty rows dropped, in taxonomy order. */
+export function cleanPlan(plan: RoomLean['bloomPlan']): BloomPlan {
+  return (plan ?? [])
+    .map(row => ({ level: normalizeBloom(row.level), count: row.count ?? 0, marks: row.marks ?? 1 }))
+    .filter((row): row is BloomPlan[number] => Boolean(row.level) && row.count > 0)
+    .sort((a, b) => BLOOM_LEVELS.indexOf(a.level) - BLOOM_LEVELS.indexOf(b.level))
+}
+
+/** Checks the combined paper settings (after merging a PATCH with the saved room). */
+export function assertPaperSettings(room: { questionsPerStudent: number; paperMode?: string | null; setCount?: number | null; bloomPlan?: RoomLean['bloomPlan'] }) {
+  const planned = cleanPlan(room.bloomPlan).reduce((sum, row) => sum + row.count, 0)
+  if (planned > room.questionsPerStudent) throw new HttpError(400, `The Bloom levels add up to ${planned} questions but each student gets ${room.questionsPerStudent}. Increase the question count or lower a level.`)
+  if (room.paperMode === 'sets' && (room.setCount ?? 0) < 2) throw new HttpError(400, 'Choose how many sets to make (at least 2), or switch to random papers.')
 }
 
 export async function findTeacherRoom(teacherId: Types.ObjectId, id: string) {
@@ -167,21 +183,19 @@ export function roomSettings(body: Record<string, unknown>, partial = false) {
     if (!(PAPER_MODES as readonly string[]).includes(String(body.paperMode))) throw new HttpError(400, 'Paper mode must be random or sets.')
     settings.paperMode = body.paperMode
   }
-  if (has('difficultyMix')) {
-    const mix = body.difficultyMix as Record<string, unknown> | null
-    if (!mix) settings.difficultyMix = null
-    else {
-      const counts = { easy: 0, medium: 0, hard: 0 }
-      for (const level of ['easy', 'medium', 'hard'] as const) {
-        const value = Number(mix[level] ?? 0)
-        if (!Number.isInteger(value) || value < 0 || value > 500) throw new HttpError(400, `${level[0].toUpperCase() + level.slice(1)} questions must be a whole number between 0 and 500.`)
-        counts[level] = value
-      }
-      const total = counts.easy + counts.medium + counts.hard
-      settings.difficultyMix = total ? counts : null
-      // A fixed mix defines the paper's MCQ count.
-      if (total) settings.questionsPerStudent = total
+  if (has('setCount')) number('setCount', 'Number of sets', 0, 26)
+  if (has('bloomPlan')) {
+    const rows = Array.isArray(body.bloomPlan) ? body.bloomPlan : []
+    const plan: BloomPlan = []
+    for (const raw of rows as Record<string, unknown>[]) {
+      const level = normalizeBloom(raw?.level)
+      if (!level) throw new HttpError(400, "Unknown Bloom's taxonomy level.")
+      const count = Number(raw.count), marks = Number(raw.marks)
+      if (!Number.isInteger(count) || count < 0 || count > 500) throw new HttpError(400, `${BLOOM_INFO[level].label}: the number of questions must be a whole number between 0 and 500.`)
+      if (!Number.isFinite(marks) || marks < 0 || marks > 100) throw new HttpError(400, `${BLOOM_INFO[level].label}: marks must be between 0 and 100.`)
+      if (count > 0 && !plan.some(row => row.level === level)) plan.push({ level, count, marks: Math.round(marks * 100) / 100 })
     }
+    settings.bloomPlan = plan
   }
   if (has('allowedClassrooms')) {
     const list = Array.isArray(body.allowedClassrooms) ? body.allowedClassrooms : []

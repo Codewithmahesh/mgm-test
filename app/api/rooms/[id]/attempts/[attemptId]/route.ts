@@ -44,6 +44,7 @@ async function detail(room: Awaited<ReturnType<typeof load>>['room'], attempt: A
       rollNumber: student?.rollNumber || attempt.rollNumber || '',
       prn: student?.prn ?? '',
       className: classLabel(student?.classroom as { class?: string; branch?: string; division?: string } | undefined),
+      set: attempt.setLabel ?? '',
       status: attempt.status,
       autoSubmitted: attempt.autoSubmitted ?? false,
       autoSubmitReason: attempt.autoSubmitReason ?? '',
@@ -70,7 +71,7 @@ async function detail(room: Awaited<ReturnType<typeof load>>['room'], attempt: A
           samples: q.samples, answer: codingAnswer(answer), marks: mark?.marks ?? null, feedback: mark?.feedback ?? '',
         }
       }
-      return { index, questionId: String(id), type: q.type, text: q.text, options: q.options, correctIndex: q.correctIndex, selected: typeof answer === 'number' ? answer : null, explanation: q.explanation }
+      return { index, questionId: String(id), type: q.type, text: q.text, options: q.options, correctIndex: q.correctIndex, selected: typeof answer === 'number' ? answer : null, explanation: q.explanation, bloom: q.bloom ?? null, marks: attempt.questionMarks?.[index] ?? attempt.marksPerQuestion }
     }),
   }
 }

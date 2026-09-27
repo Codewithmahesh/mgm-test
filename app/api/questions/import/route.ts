@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { HttpError, handler, readJson, requireTeacher } from '@/lib/auth'
-import { questionsFromCsv } from '@/lib/questions'
+import { questionsFromCsv, toDraft } from '@/lib/questions'
 
 const MAX_CSV_BYTES = 2 * 1024 * 1024
 
@@ -17,5 +17,5 @@ export const POST = handler(async (request: Request) => {
 
   const { questions, errors } = questionsFromCsv(csv)
   if (!questions.length) throw new HttpError(400, errors[0] ?? 'No questions were found in this CSV.')
-  return NextResponse.json({ questions, errors })
+  return NextResponse.json({ questions: questions.map(toDraft), errors })
 })

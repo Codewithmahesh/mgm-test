@@ -6,12 +6,13 @@ import { Button } from '@/components/ui/button'
 import { Alert, Field, Input, Select, Textarea } from '@/components/ui/form'
 import { Dialog } from '@/components/ui/overlay'
 import { letter, type DraftQuestion, type Sample } from '@/lib/api'
+import { BLOOM_INFO, BLOOM_LEVELS } from '@/lib/bloom'
 import { cn } from '@/lib/utils'
 
 export function blankQuestion(type: DraftQuestion['type'] = 'mcq'): DraftQuestion {
   return {
     type, text: '', options: type === 'tf' ? ['True', 'False'] : type === 'mcq' ? ['', '', '', ''] : [], correctIndex: type === 'coding' ? null : 0,
-    topic: '', difficulty: null, set: '', explanation: '', title: '', inputFormat: '', outputFormat: '', constraints: '',
+    topic: '', bloom: null, set: '', explanation: '', title: '', inputFormat: '', outputFormat: '', constraints: '',
     samples: type === 'coding' ? [{ input: '', output: '', explanation: '' }] : [], points: null, language: '', starterCode: '',
   }
 }
@@ -37,7 +38,7 @@ export function QuestionEditor({ open, initial, onClose, onSave, title }: { open
   useEffect(() => { if (open) { setQ(initial ?? blankQuestion()); setError('') } }, [open, initial])
 
   const set = <K extends keyof DraftQuestion>(key: K, value: DraftQuestion[K]) => setQ(current => ({ ...current, [key]: value }))
-  const setType = (type: DraftQuestion['type']) => setQ(current => ({ ...blankQuestion(type), text: current.text, topic: current.topic, difficulty: current.difficulty, set: current.set, explanation: current.explanation }))
+  const setType = (type: DraftQuestion['type']) => setQ(current => ({ ...blankQuestion(type), text: current.text, topic: current.topic, bloom: current.bloom, set: current.set, explanation: current.explanation }))
   const setSample = (index: number, key: keyof Sample, value: string) => set('samples', q.samples.map((s, i) => (i === index ? { ...s, [key]: value } : s)))
 
   async function save() {
@@ -115,9 +116,10 @@ export function QuestionEditor({ open, initial, onClose, onSave, title }: { open
         )}
         <div className="grid gap-4 sm:grid-cols-[1fr_1fr_120px]">
           <Field label="Topic"><Input value={q.topic} onChange={e => set('topic', e.target.value)} placeholder="e.g. Linked lists" /></Field>
-          <Field label="Difficulty">
-            <Select value={q.difficulty ?? ''} onChange={e => set('difficulty', (e.target.value || null) as DraftQuestion['difficulty'])}>
-              <option value="">Not set</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
+          <Field label="Bloom's level">
+            <Select value={q.bloom ?? ''} onChange={e => set('bloom', (e.target.value || null) as DraftQuestion['bloom'])}>
+              <option value="">Not set</option>
+              {BLOOM_LEVELS.map(level => <option key={level} value={level}>L{BLOOM_INFO[level].n} · {BLOOM_INFO[level].label}</option>)}
             </Select>
           </Field>
           <Field label="Set" hint="Blank = every set."><Input value={q.set} maxLength={12} onChange={e => set('set', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="e.g. A" /></Field>

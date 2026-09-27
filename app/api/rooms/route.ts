@@ -3,7 +3,7 @@ import { handler, readJson, requireTeacher } from '@/lib/auth'
 import { refreshPool, uniqueRoomCode } from '@/lib/exams'
 import { ExamRoom, Question, isObjectId } from '@/lib/models'
 import { copyOf, normalizeQuestion } from '@/lib/questions'
-import { roomSettings, withRoomStats } from '@/lib/rooms'
+import { assertPaperSettings, roomSettings, withRoomStats } from '@/lib/rooms'
 
 export const GET = handler(async () => {
   const teacher = await requireTeacher()
@@ -19,6 +19,7 @@ export const POST = handler(async (request: Request) => {
   const teacher = await requireTeacher()
   const body = await readJson(request)
   const settings = roomSettings(body)
+  assertPaperSettings(settings as Parameters<typeof assertPaperSettings>[0])
 
   const newQuestions = Array.isArray(body.questions) ? body.questions : []
   const bankIds = (Array.isArray(body.questionIds) ? body.questionIds : []).filter(isObjectId)

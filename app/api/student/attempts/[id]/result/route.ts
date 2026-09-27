@@ -25,6 +25,7 @@ export const GET = handler(async (_request: Request, context: Context) => {
     startedAt: attempt.startedAt,
     submittedAt: attempt.submittedAt ?? null,
     totalQuestions: attempt.questions.length,
+    set: attempt.status === 'submitted' ? attempt.setLabel ?? '' : '',
     visible,
   }
   if (!visible) return NextResponse.json(base)
@@ -49,7 +50,7 @@ export const GET = handler(async (_request: Request, context: Context) => {
         const mark = marks.get(String(id))
         return { number: index + 1, type: 'coding', title: q.title, points: q.points ?? room?.codingMarks ?? 10, answer: codingAnswer(answer), marks: mark?.marks ?? null, feedback: mark?.feedback ?? '' }
       }
-      return { number: index + 1, type: q.type, text: q.text, options: q.options, correctIndex: q.correctIndex, selected: typeof answer === 'number' ? answer : null, explanation: q.explanation ?? '' }
+      return { number: index + 1, type: q.type, text: q.text, options: q.options, correctIndex: q.correctIndex, selected: typeof answer === 'number' ? answer : null, explanation: q.explanation ?? '', marks: attempt.questionMarks?.[index] ?? attempt.marksPerQuestion }
     }),
   })
 })
