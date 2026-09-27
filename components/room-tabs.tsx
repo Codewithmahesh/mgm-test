@@ -10,6 +10,7 @@ import type { Flags, RiskLevel } from '@/lib/integrity'
 import { PdfButtons } from '@/components/paper-view'
 import { QuestionCard } from '@/components/question-card'
 import { QuestionEditor } from '@/components/question-editor'
+import { QuestionAttachmentButton } from '@/components/question-attachment'
 import { RoomForm, roomToValues, valuesToPayload } from '@/components/room-form'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Badge, Card, CardHeader, EmptyState, Progress, Spinner, StatCard } from '@/components/ui/card'
@@ -96,7 +97,7 @@ export function OverviewTab({ room, onGo }: { room: Room; onGo: (tab: 'questions
             <Detail icon={ShieldAlert} label="Auto-submit" value={room.maxViolations ? `After ${room.maxViolations} violations` : 'Off (flag only)'} />
             <div className="col-span-2">
               <dt className="text-muted-foreground">Open to</dt>
-              <dd className="mt-1 flex flex-wrap gap-1.5">{room.allowedClassrooms.length ? room.allowedClassrooms.map(id => <Badge key={id}>{classrooms.find(c => c.id === id)?.label ?? '…'}</Badge>) : <span>Any activated student with the code</span>}</dd>
+              <dd className="mt-1 flex flex-wrap gap-1.5">{room.allowedClassrooms.length ? room.allowedClassrooms.map(id => <Badge key={id}>{classrooms.find(c => c.id === id)?.label ?? '…'}</Badge>) : <Badge tone="blue">All Students (Open to Everyone)</Badge>}</dd>
             </div>
           </dl>
         </Card>
@@ -139,6 +140,18 @@ export function QuestionsTab({ room, questions, onChanged, onRemoved, autoOpen }
   }
 
   const actions = (question: BankQuestion) => <>
+    <QuestionAttachmentButton
+      imageUrl={question.imageUrl}
+      onImageChange={async (url) => {
+        try {
+          await api(`/api/questions/${question.id}`, { method: 'PATCH', body: { imageUrl: url } })
+          toast(url ? 'Image attached.' : 'Image removed.')
+          onChanged()
+        } catch (err) {
+          toast(errorMessage(err), 'error')
+        }
+      }}
+    />
     <button onClick={() => setEditing(question)} aria-label="Edit" className="rounded p-1.5 text-subtle hover:bg-muted hover:text-foreground"><Pencil className="size-3.5" /></button>
     <button onClick={() => remove(question)} aria-label="Remove from room" className="rounded p-1.5 text-subtle hover:bg-muted hover:text-danger"><Trash2 className="size-3.5" /></button>
   </>

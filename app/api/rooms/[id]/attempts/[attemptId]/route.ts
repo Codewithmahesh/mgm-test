@@ -67,11 +67,11 @@ async function detail(room: Awaited<ReturnType<typeof load>>['room'], attempt: A
       if (q.type === 'coding') {
         const mark = marks.get(String(id))
         return {
-          index, questionId: String(id), type: 'coding' as const, title: q.title, text: q.text, points: q.points ?? room.codingMarks ?? 10,
+          index, questionId: String(id), type: 'coding' as const, title: q.title, text: q.text, imageUrl: q.imageUrl ?? '', points: q.points ?? room.codingMarks ?? 10,
           samples: q.samples, answer: codingAnswer(answer), marks: mark?.marks ?? null, feedback: mark?.feedback ?? '',
         }
       }
-      return { index, questionId: String(id), type: q.type, text: q.text, options: q.options, correctIndex: q.correctIndex, selected: typeof answer === 'number' ? answer : null, explanation: q.explanation, bloom: q.bloom ?? null, marks: attempt.questionMarks?.[index] ?? attempt.marksPerQuestion }
+      return { index, questionId: String(id), type: q.type, text: q.text, imageUrl: q.imageUrl ?? '', options: q.options, correctIndex: q.correctIndex, selected: typeof answer === 'number' ? answer : null, explanation: q.explanation, bloom: q.bloom ?? null, marks: attempt.questionMarks?.[index] ?? attempt.marksPerQuestion }
     }),
   }
 }

@@ -90,6 +90,7 @@ export type DraftQuestion = {
   points: number | null
   language: string
   starterCode: string
+  imageUrl?: string
 }
 
 export type BankQuestion = DraftQuestion & { id: string; room: string | null; source: 'csv' | 'ai' | 'manual'; createdAt: string }
@@ -191,7 +192,7 @@ export const YEAR_OPTIONS = [
   { value: 'FY', label: 'First Year (FY)' },
   { value: 'SY', label: 'Second Year (SY)' },
   { value: 'TY', label: 'Third Year (TY)' },
-  { value: 'LY', label: 'Final Year (LY)' },
+  { value: 'B.Tech', label: 'B.Tech' },
 ]
 
 export const BRANCH_OPTIONS = [

@@ -90,6 +90,10 @@ function Choice({ selected, onSelect, icon: Icon, title, text }: { selected: boo
 export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: RoomFormValues; submitLabel: string; onSubmit: (values: RoomFormValues) => Promise<void>; pool?: { mcq: number; coding: number } }) {
   const { confirm } = useFeedback()
   const [values, setValues] = useState(initial)
+  const [accessMode, setAccessMode] = useState<'specific' | 'all'>(() => {
+    if (initial.title && initial.allowedClassrooms.length === 0) return 'all'
+    return 'specific'
+  })
   const [classrooms, setClassrooms] = useState<Classroom[]>([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -111,6 +115,9 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
     if (mcq + coding === 0) return setError('Each student needs at least one MCQ or coding problem.')
     if (planOver) return setError(`The Bloom levels add up to ${draftCount(values.bloomPlan)} questions but each student gets ${mcq}. Increase the question count or lower a level.`)
     if (values.paperMode === 'sets' && (sets < 2 || sets > 26)) return setError('Choose between 2 and 26 sets, or switch to random papers.')
+    if (accessMode === 'specific' && values.allowedClassrooms.length === 0) {
+      return setError('Please select at least one class for this exam, or choose "All Students (Open to All)".')
+    }
     const assigned = usePlan ? draftCount(values.bloomPlan) : mcq
     if (usePlan && assigned < mcq && !(await confirm({
       title: 'Bloom plan has unassigned questions',
@@ -120,7 +127,12 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
     }))) return
     setSaving(true)
     setError('')
-    try { await onSubmit(values) } catch (err) { setError(err instanceof Error ? err.message : 'Could not save.') } finally { setSaving(false) }
+    try {
+      await onSubmit({
+        ...values,
+        allowedClassrooms: accessMode === 'all' ? [] : values.allowedClassrooms,
+      })
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not save.') } finally { setSaving(false) }
   }
 
   return (
@@ -199,22 +211,115 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
               <Input id="startsAt" type="datetime-local" value={values.startsAt} onChange={text('startsAt')} />
             </Field>
             <div>
-              <p className="text-[13px] font-medium">Who can take this exam</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">Leave all unticked to allow any activated student who has the code.</p>
-              {classrooms.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">No classes yet.</p> : (
-                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {classrooms.map(classroom => {
-                    const checked = values.allowedClassrooms.includes(classroom.id)
-                    return (
-                      <label key={classroom.id} className={cn('flex cursor-pointer items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm', checked ? 'border-primary bg-primary-soft' : 'border-border hover:bg-muted/60')}>
-                        <span className="flex items-center gap-2.5">
-                          <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={checked} onChange={() => set('allowedClassrooms', checked ? values.allowedClassrooms.filter(id => id !== classroom.id) : [...values.allowedClassrooms, classroom.id])} />
-                          <span className="font-medium">{classroom.label}</span>
-                        </span>
-                        <span className="text-xs text-muted-foreground">{classroom.students}</span>
-                      </label>
-                    )
-                  })}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[13px] font-medium">Who can take this exam</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Choose whether this exam is restricted to specific classes or open to all students.</p>
+                </div>
+              </div>
+
+              {/* Access Mode Selector: Specific Classes FIRST, All Students SECOND */}
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setAccessMode('specific')}
+                  className={cn(
+                    'flex items-center gap-3 rounded-lg border p-3 text-left transition-all',
+                    accessMode === 'specific'
+                      ? 'border-primary bg-primary-soft ring-1 ring-primary'
+                      : 'border-border hover:bg-muted/50'
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="accessMode"
+                    checked={accessMode === 'specific'}
+                    onChange={() => setAccessMode('specific')}
+                    className="size-4 accent-[var(--primary)]"
+                  />
+                  <div>
+                    <div className="text-sm font-semibold">Specific Classes Only</div>
+                    <div className="text-xs text-muted-foreground">Restrict to selected departments & divisions</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAccessMode('all')
+                    set('allowedClassrooms', [])
+                  }}
+                  className={cn(
+                    'flex items-center gap-3 rounded-lg border p-3 text-left transition-all',
+                    accessMode === 'all'
+                      ? 'border-primary bg-primary-soft ring-1 ring-primary'
+                      : 'border-border hover:bg-muted/50'
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="accessMode"
+                    checked={accessMode === 'all'}
+                    onChange={() => {
+                      setAccessMode('all')
+                      set('allowedClassrooms', [])
+                    }}
+                    className="size-4 accent-[var(--primary)]"
+                  />
+                  <div>
+                    <div className="text-sm font-semibold">All Students (Open to All)</div>
+                    <div className="text-xs text-muted-foreground">Any registered student with the room code can join</div>
+                  </div>
+                </button>
+              </div>
+
+              {/* Specific Classes Checkbox Section */}
+              {accessMode === 'specific' && (
+                <div className="mt-3 rounded-lg border border-border bg-card p-3 space-y-3">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground border-b border-border pb-2">
+                    <span>{values.allowedClassrooms.length} of {classrooms.length} classes selected</span>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => set('allowedClassrooms', classrooms.map(c => c.id))}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        Select All
+                      </button>
+                      <span>·</span>
+                      <button
+                        type="button"
+                        onClick={() => set('allowedClassrooms', [])}
+                        className="font-medium hover:text-foreground"
+                      >
+                        Unselect All
+                      </button>
+                    </div>
+                  </div>
+
+                  {classrooms.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No classes created yet.</p>
+                  ) : (
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {classrooms.map(classroom => {
+                        const checked = values.allowedClassrooms.includes(classroom.id)
+                        return (
+                          <label key={classroom.id} className={cn('flex cursor-pointer items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm', checked ? 'border-primary bg-primary-soft' : 'border-border hover:bg-muted/60')}>
+                            <span className="flex items-center gap-2.5">
+                              <input
+                                type="checkbox"
+                                className="size-4 accent-[var(--primary)]"
+                                checked={checked}
+                                onChange={() => set('allowedClassrooms', checked ? values.allowedClassrooms.filter(id => id !== classroom.id) : [...values.allowedClassrooms, classroom.id])}
+                              />
+                              <span className="font-medium">{classroom.label}</span>
+                            </span>
+                            <span className="text-xs text-muted-foreground">{classroom.students}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

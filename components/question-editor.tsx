@@ -5,6 +5,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Alert, Field, Input, Select, Textarea } from '@/components/ui/form'
 import { Dialog } from '@/components/ui/overlay'
+import { QuestionImageUpload } from '@/components/question-attachment'
 import { letter, type DraftQuestion, type Sample } from '@/lib/api'
 import { BLOOM_INFO, BLOOM_LEVELS } from '@/lib/bloom'
 import { cn } from '@/lib/utils'
@@ -13,7 +14,7 @@ export function blankQuestion(type: DraftQuestion['type'] = 'mcq'): DraftQuestio
   return {
     type, text: '', options: type === 'tf' ? ['True', 'False'] : type === 'mcq' ? ['', '', '', ''] : [], correctIndex: type === 'coding' ? null : 0,
     topic: '', bloom: null, set: '', explanation: '', title: '', inputFormat: '', outputFormat: '', constraints: '',
-    samples: type === 'coding' ? [{ input: '', output: '', explanation: '' }] : [], points: null, language: '', starterCode: '',
+    samples: type === 'coding' ? [{ input: '', output: '', explanation: '' }] : [], points: null, language: '', starterCode: '', imageUrl: '',
   }
 }
 
@@ -38,7 +39,7 @@ export function QuestionEditor({ open, initial, onClose, onSave, title }: { open
   useEffect(() => { if (open) { setQ(initial ?? blankQuestion()); setError('') } }, [open, initial])
 
   const set = <K extends keyof DraftQuestion>(key: K, value: DraftQuestion[K]) => setQ(current => ({ ...current, [key]: value }))
-  const setType = (type: DraftQuestion['type']) => setQ(current => ({ ...blankQuestion(type), text: current.text, topic: current.topic, bloom: current.bloom, set: current.set, explanation: current.explanation }))
+  const setType = (type: DraftQuestion['type']) => setQ(current => ({ ...blankQuestion(type), text: current.text, topic: current.topic, bloom: current.bloom, set: current.set, explanation: current.explanation, imageUrl: current.imageUrl }))
   const setSample = (index: number, key: keyof Sample, value: string) => set('samples', q.samples.map((s, i) => (i === index ? { ...s, [key]: value } : s)))
 
   async function save() {
@@ -67,7 +68,8 @@ export function QuestionEditor({ open, initial, onClose, onSave, title }: { open
               <Field label="Problem title" required><Input value={q.title} onChange={e => set('title', e.target.value)} placeholder="e.g. Pair Sum" /></Field>
               <Field label="Marks" hint="Blank = room default"><Input type="number" min={0} value={q.points ?? ''} onChange={e => set('points', e.target.value ? Number(e.target.value) : null)} /></Field>
             </div>
-            <Field label="Problem statement" required><Textarea rows={6} value={q.text} onChange={e => set('text', e.target.value)} placeholder="Describe the task clearly…" /></Field>
+            <Field label="Problem statement" required><Textarea rows={5} value={q.text} onChange={e => set('text', e.target.value)} placeholder="Describe the task clearly…" /></Field>
+            <QuestionImageUpload imageUrl={q.imageUrl} onChange={url => set('imageUrl', url)} />
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Input format"><Textarea rows={3} value={q.inputFormat} onChange={e => set('inputFormat', e.target.value)} placeholder="The first line contains N…" /></Field>
               <Field label="Output format"><Textarea rows={3} value={q.outputFormat} onChange={e => set('outputFormat', e.target.value)} placeholder="Print a single integer…" /></Field>
@@ -75,26 +77,46 @@ export function QuestionEditor({ open, initial, onClose, onSave, title }: { open
             <Field label="Constraints"><Textarea rows={2} className="font-mono text-[13px]" value={q.constraints} onChange={e => set('constraints', e.target.value)} placeholder={'1 ≤ N ≤ 10^5\n1 ≤ A[i] ≤ 10^9'} /></Field>
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-[13px] font-medium">Sample tests</span>
-                <Button variant="ghost" size="xs" type="button" onClick={() => set('samples', [...q.samples, { input: '', output: '', explanation: '' }])}><Plus />Add sample</Button>
+                <div>
+                  <span className="text-[13px] font-medium">Test cases / Sample tests</span>
+                  <span className="ml-2 text-xs text-muted-foreground">(Optional)</span>
+                </div>
+                <Button variant="ghost" size="xs" type="button" onClick={() => set('samples', [...q.samples, { input: '', output: '', explanation: '' }])}>
+                  <Plus className="size-3.5" />Add test case
+                </Button>
               </div>
-              <div className="flex flex-col gap-3">
-                {q.samples.map((sample, index) => (
-                  <div key={index} className="rounded-md border border-border p-3">
-                    <div className="mb-2 flex items-center justify-between text-xs font-medium text-muted-foreground">Sample {index + 1}<button type="button" onClick={() => set('samples', q.samples.filter((_, i) => i !== index))} aria-label="Remove sample" className="rounded p-1 hover:bg-muted hover:text-danger"><Trash2 className="size-3.5" /></button></div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <Textarea rows={3} className="font-mono text-[13px]" value={sample.input} onChange={e => setSample(index, 'input', e.target.value)} placeholder="Input" />
-                      <Textarea rows={3} className="font-mono text-[13px]" value={sample.output} onChange={e => setSample(index, 'output', e.target.value)} placeholder="Output" />
+              {q.samples.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border p-4 text-center">
+                  <p className="text-xs text-muted-foreground">No test cases added yet.</p>
+                  <Button variant="outline" size="xs" type="button" className="mt-2" onClick={() => set('samples', [{ input: '', output: '', explanation: '' }])}>
+                    <Plus className="size-3.5" />Add first test case
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {q.samples.map((sample, index) => (
+                    <div key={index} className="rounded-md border border-border p-3">
+                      <div className="mb-2 flex items-center justify-between text-xs font-medium text-muted-foreground">
+                        <span>Test case {index + 1}</span>
+                        <button type="button" onClick={() => set('samples', q.samples.filter((_, i) => i !== index))} aria-label="Remove test case" className="rounded p-1 hover:bg-muted hover:text-danger">
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Input" hint="stdin"><Textarea rows={3} className="font-mono text-[13px]" value={sample.input} onChange={e => setSample(index, 'input', e.target.value)} placeholder="Sample input" /></Field>
+                        <Field label="Expected output" hint="stdout"><Textarea rows={3} className="font-mono text-[13px]" value={sample.output} onChange={e => setSample(index, 'output', e.target.value)} placeholder="Expected output" /></Field>
+                      </div>
+                      <Input className="mt-2" value={sample.explanation} onChange={e => setSample(index, 'explanation', e.target.value)} placeholder="Explanation (optional)" />
                     </div>
-                    <Input className="mt-2" value={sample.explanation} onChange={e => setSample(index, 'explanation', e.target.value)} placeholder="Explanation (optional)" />
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         ) : (
           <>
             <Field label="Question" required><Textarea rows={3} value={q.text} onChange={e => set('text', e.target.value)} placeholder="Type the question…" autoFocus /></Field>
+            <QuestionImageUpload imageUrl={q.imageUrl} onChange={url => set('imageUrl', url)} />
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-[13px] font-medium">Options <span className="font-normal text-muted-foreground">— select the correct one</span></span>

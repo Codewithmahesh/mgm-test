@@ -28,20 +28,20 @@ export const GET = handler(async (_request: Request, context: Context) => {
   }
   if (attempt.status === 'submitted') return NextResponse.json(base)
 
-  const docs = await Question.find({ _id: { $in: attempt.questions } }).select('type text options topic bloom title inputFormat outputFormat constraints samples points language starterCode').lean()
+  const docs = await Question.find({ _id: { $in: attempt.questions } }).select('type text options topic bloom title inputFormat outputFormat constraints samples points language starterCode imageUrl').lean()
   const byId = new Map(docs.map(q => [String(q._id), q]))
   const questions = attempt.questions.map((id, index) => {
     const q = byId.get(String(id))
-    if (!q) return { number: index + 1, type: 'mcq' as const, text: 'This question was removed by your faculty. You can skip it.', options: [], topic: '' }
+    if (!q) return { number: index + 1, type: 'mcq' as const, text: 'This question was removed by your faculty. You can skip it.', options: [], topic: '', imageUrl: '' }
     if (q.type === 'coding') {
       return {
-        number: index + 1, type: 'coding' as const, title: q.title || `Problem ${index + 1}`, text: q.text, topic: q.topic ?? '',
+        number: index + 1, type: 'coding' as const, title: q.title || `Problem ${index + 1}`, text: q.text, imageUrl: q.imageUrl ?? '', topic: q.topic ?? '',
         inputFormat: q.inputFormat ?? '', outputFormat: q.outputFormat ?? '', constraints: q.constraints ?? '',
         samples: (q.samples ?? []).map(s => ({ input: s.input, output: s.output, explanation: s.explanation ?? '' })),
         points: q.points ?? room?.codingMarks ?? 10, language: q.language || '', starterCode: q.starterCode ?? '',
       }
     }
-    return { number: index + 1, type: q.type, text: q.text, options: q.options, topic: q.topic ?? '', marks: attempt.questionMarks?.[index] ?? attempt.marksPerQuestion }
+    return { number: index + 1, type: q.type, text: q.text, imageUrl: q.imageUrl ?? '', options: q.options, topic: q.topic ?? '', marks: attempt.questionMarks?.[index] ?? attempt.marksPerQuestion }
   })
   return NextResponse.json({ ...base, questions, answers: attempt.answers, flagged: attempt.flagged, tabSwitches: attempt.tabSwitches ?? 0 })
 })

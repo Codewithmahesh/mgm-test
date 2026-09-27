@@ -108,10 +108,16 @@ export async function applyAnswers(attempt: Awaited<ReturnType<typeof findOwnAtt
     if (!question) continue
     if (value === null) { attempt.answers[index] = null; continue }
     if (question.type === 'coding') {
-      const answer = value as { language?: unknown; code?: unknown }
+      const answer = value as { language?: unknown; code?: unknown; passedCases?: unknown; totalCases?: unknown; marks?: unknown }
       const language = String(answer?.language ?? '')
       if (typeof answer?.code === 'string' && (LANGUAGES as readonly string[]).includes(language)) {
-        attempt.answers[index] = { language, code: answer.code.slice(0, 50_000) }
+        attempt.answers[index] = {
+          language,
+          code: answer.code.slice(0, 50_000),
+          ...(typeof answer.passedCases === 'number' ? { passedCases: Math.max(0, Math.round(answer.passedCases)) } : {}),
+          ...(typeof answer.totalCases === 'number' ? { totalCases: Math.max(0, Math.round(answer.totalCases)) } : {}),
+          ...(typeof answer.marks === 'number' ? { marks: Math.max(0, Number(answer.marks)) } : {}),
+        }
         continue
       }
     } else if (Number.isInteger(value) && (value as number) >= 0 && (value as number) < question.options.length) {

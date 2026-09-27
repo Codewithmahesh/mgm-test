@@ -20,6 +20,7 @@ export type QuestionInput = {
   explanation: string
   language: string
   starterCode: string
+  imageUrl: string
 }
 
 /** RFC 4180 CSV parser: handles quoted cells, escaped quotes, commas and newlines inside quotes. */
@@ -109,6 +110,7 @@ export function normalizeQuestion(raw: Record<string, unknown>): QuestionInput |
     bloom: normalizeBloom(raw.bloom),
     setLabel: normalizeSet(raw.set ?? raw.setLabel),
     explanation: String(raw.explanation ?? '').trim().slice(0, 5000),
+    imageUrl: String(raw.imageUrl ?? raw.image ?? '').trim().slice(0, 2000),
   }
   const noCoding = { title: '', inputFormat: '', outputFormat: '', constraints: '', samples: [] as Sample[], points: null }
   if (type === 'coding') {
@@ -170,6 +172,7 @@ export function questionsFromCsv(csv: string) {
       constraints: get('constraints'),
       samples: [{ input: get('sampleInput'), output: get('sampleOutput') }],
       points: get('points'),
+      imageUrl: get('imageUrl') || get('image'),
     })
     if (typeof result === 'string') errors.push(`Row ${index + 2}: ${result}`)
     else questions.push(result)
@@ -197,6 +200,7 @@ export function serializeQuestion(q: QuestionDoc) {
     explanation: q.explanation ?? '',
     language: q.language ?? '',
     starterCode: q.starterCode ?? '',
+    imageUrl: q.imageUrl ?? '',
     title: q.title ?? '',
     inputFormat: q.inputFormat ?? '',
     outputFormat: q.outputFormat ?? '',

@@ -13,7 +13,8 @@ export const PATCH = handler(async (request: Request) => {
   const student = await requireStudent({ requireProfile: false })
   const body = await readJson(request)
   const name = String(body.name ?? '').trim().replace(/\s+/g, ' ')
-  const year = String(body.year ?? '').toUpperCase()
+  const rawYear = String(body.year ?? '').trim()
+  const year = (YEARS as readonly string[]).find(y => y.toLowerCase() === rawYear.toLowerCase()) || rawYear
   const branch = String(body.branch ?? '').toUpperCase()
   const division = String(body.division ?? '').toUpperCase().trim()
   const rollNumber = String(body.rollNumber ?? '').trim()

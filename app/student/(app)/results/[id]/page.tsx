@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { use, useEffect, useState } from 'react'
-import { Check, CheckCircle2, Clock3, Code2, Hourglass, Minus, X } from 'lucide-react'
+import { Check, CheckCircle2, Clock3, Code2, Hourglass, Minus, ShieldAlert, X } from 'lucide-react'
 import { CodeEditor } from '@/components/code-editor'
 import { Badge, Card, CardHeader, PageLoader, StatCard } from '@/components/ui/card'
 import { Alert } from '@/components/ui/form'
@@ -10,13 +10,13 @@ import { api, errorMessage, formatDate, formatDuration, languageLabel, letter } 
 import { cn } from '@/lib/utils'
 
 type Item =
-  | { number: number; type: 'mcq' | 'tf'; text: string; options: string[]; correctIndex: number; selected: number | null; explanation: string; marks?: number }
-  | { number: number; type: 'coding'; title: string; points: number; answer: { language: string; code: string } | null; marks: number | null; feedback: string }
+  | { number: number; type: 'mcq' | 'tf'; text: string; imageUrl?: string; options: string[]; correctIndex: number; selected: number | null; explanation: string; marks?: number }
+  | { number: number; type: 'coding'; title: string; imageUrl?: string; points: number; answer: { language: string; code: string } | null; marks: number | null; feedback: string }
   | { number: number; type: 'removed' }
 
 type Result = {
   room: { title: string; code: string; status: string; showResults: string }
-  status: string; autoSubmitted: boolean; autoSubmitReason?: string; startedAt: string; submittedAt: string | null; totalQuestions: number; visible: boolean; set?: string
+  status: string; autoSubmitted: boolean; autoSubmitReason?: string; suspended?: boolean; suspendedReason?: string; startedAt: string; submittedAt: string | null; totalQuestions: number; visible: boolean; set?: string
   score?: number; maxScore?: number; mcqScore?: number; codingScore?: number; correctCount?: number; wrongCount?: number; codingPending?: number
   items?: Item[]
 }
@@ -30,6 +30,7 @@ export default function ResultPage({ params }: { params: Promise<{ id: string }>
   if (error) return <Alert>{error}</Alert>
   if (!data) return <PageLoader />
   const taken = data.submittedAt ? Math.round((new Date(data.submittedAt).getTime() - new Date(data.startedAt).getTime()) / 1000) : null
+  const isSuspended = Boolean(data.suspended || (data.autoSubmitted && (data.autoSubmitReason === 'violations' || data.autoSubmitReason === 'faculty')))
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -44,11 +45,28 @@ export default function ResultPage({ params }: { params: Promise<{ id: string }>
       {!data.visible ? (
         <Card className="mt-6">
           <div className="flex flex-col items-center px-6 py-14 text-center">
-            <span className="flex size-12 items-center justify-center rounded-full bg-success-soft text-success"><CheckCircle2 className="size-6" /></span>
-            <h2 className="mt-4 text-lg font-semibold">Your answers were submitted</h2>
-            <p className="mt-1 max-w-md text-sm text-muted-foreground">
-              {data.room.showResults === 'never' ? 'Your faculty has chosen not to publish scores for this exam.' : 'Your result will appear here once the exam ends for everyone.'}
-            </p>
+            {isSuspended ? (
+              <>
+                <span className="flex size-12 items-center justify-center rounded-full bg-danger-soft text-danger">
+                  <ShieldAlert className="size-6" />
+                </span>
+                <h2 className="mt-4 text-lg font-semibold text-danger">Exam Suspended · Result Withheld</h2>
+                <p className="mt-1 max-w-md text-sm text-muted-foreground">
+                  {data.autoSubmitReason === 'violations'
+                    ? 'Your exam was suspended and auto-submitted due to proctoring rule violations.'
+                    : 'Your exam was suspended by faculty.'}
+                  {' '}Results and scores are withheld. If your faculty allows you to continue, you will be able to resume and submit your exam.
+                </p>
+              </>
+            ) : (
+              <>
+                <span className="flex size-12 items-center justify-center rounded-full bg-success-soft text-success"><CheckCircle2 className="size-6" /></span>
+                <h2 className="mt-4 text-lg font-semibold">Your answers were submitted</h2>
+                <p className="mt-1 max-w-md text-sm text-muted-foreground">
+                  {data.room.showResults === 'never' ? 'Your faculty has chosen not to publish scores for this exam.' : 'Your result will appear here once the exam ends for everyone.'}
+                </p>
+              </>
+            )}
             <div className="mt-5 flex gap-6 text-[13px] text-muted-foreground"><span className="flex items-center gap-1.5"><Clock3 className="size-3.5" />{formatDuration(taken)}</span><span>{data.totalQuestions} questions</span>{data.set && <span>You wrote <b className="font-semibold text-foreground">Set {data.set}</b></span>}</div>
           </div>
         </Card>
@@ -77,6 +95,11 @@ export default function ResultPage({ params }: { params: Promise<{ id: string }>
                         <p className="flex items-center gap-2 text-sm font-semibold"><Code2 className="size-4 text-violet" /><span className="font-mono text-xs font-normal text-subtle">Q{item.number}</span>{item.title}</p>
                         {item.marks == null ? <Badge tone="violet">{item.answer ? 'Being graded' : 'Not attempted'}</Badge> : <Badge tone="green">{item.marks} / {item.points}</Badge>}
                       </div>
+                      {item.imageUrl && (
+                        <div className="mt-2.5 max-w-lg overflow-hidden rounded-md border border-border bg-muted/20 p-1">
+                          <img src={item.imageUrl} alt="Coding diagram" className="max-h-60 w-auto max-w-full rounded object-contain" />
+                        </div>
+                      )}
                       {item.feedback && <p className="mt-2 rounded-md bg-muted px-3 py-2 text-[13px]"><span className="font-medium">Feedback:</span> {item.feedback}</p>}
                       {item.answer && (
                         <div className="mt-3 overflow-hidden rounded-md border border-border">
@@ -91,6 +114,11 @@ export default function ResultPage({ params }: { params: Promise<{ id: string }>
                         <p className="text-sm leading-6"><span className="mr-2 font-mono text-xs text-subtle">Q{item.number}</span>{item.text}</p>
                         {item.selected == null ? <Badge><Minus className="size-3" />Skipped</Badge> : item.selected === item.correctIndex ? <Badge tone="green"><Check className="size-3" />Correct{item.marks != null && ` · +${item.marks}`}</Badge> : <Badge tone="red"><X className="size-3" />Wrong</Badge>}
                       </div>
+                      {item.imageUrl && (
+                        <div className="mt-2.5 max-w-lg overflow-hidden rounded-md border border-border bg-muted/20 p-1">
+                          <img src={item.imageUrl} alt="Question diagram" className="max-h-60 w-auto max-w-full rounded object-contain" />
+                        </div>
+                      )}
                       <ul className="mt-2.5 grid gap-1.5 sm:grid-cols-2">
                         {item.options.map((option, i) => (
                           <li key={i} className={cn('flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-[13px]', i === item.correctIndex ? 'border-success-border bg-success-soft text-success-ink' : i === item.selected ? 'border-danger-border bg-danger-soft text-danger-ink' : 'border-border text-muted-foreground')}>

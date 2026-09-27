@@ -35,6 +35,11 @@ export function PaperView({ open, onClose, meta, questions, loading }: { open: b
                 <span className="w-6 shrink-0 text-right font-semibold tabular-nums">{i + 1}.</span>
                 <div className="min-w-0 flex-1">
                   <p className="font-medium leading-6">{q.text}</p>
+                  {q.imageUrl && (
+                    <div className="my-2 max-w-md overflow-hidden rounded-md border border-border bg-muted/20 p-1">
+                      <img src={q.imageUrl} alt="Diagram" className="max-h-56 w-auto max-w-full rounded object-contain" />
+                    </div>
+                  )}
                   <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
                     {q.options.map((option, j) => {
                       const correct = answers && j === q.correctIndex
@@ -52,6 +57,11 @@ export function PaperView({ open, onClose, meta, questions, loading }: { open: b
               <section key={q.id} className="rounded-lg border border-border p-4">
                 <h3 className="font-semibold">P{i + 1}. {q.title || 'Coding problem'} {(q.points ?? meta.codingMarks) != null && <span className="text-sm font-normal text-muted-foreground">({q.points ?? meta.codingMarks} marks)</span>}</h3>
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{q.text}</p>
+                {q.imageUrl && (
+                  <div className="my-2 max-w-md overflow-hidden rounded-md border border-border bg-muted/20 p-1">
+                    <img src={q.imageUrl} alt="Problem diagram" className="max-h-56 w-auto max-w-full rounded object-contain" />
+                  </div>
+                )}
                 {[['Input format', q.inputFormat], ['Output format', q.outputFormat], ['Constraints', q.constraints]].filter(([, v]) => v?.trim()).map(([label, value]) => (
                   <div key={label} className="mt-3"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-0.5 whitespace-pre-wrap text-sm leading-6">{value}</p></div>
                 ))}

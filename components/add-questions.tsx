@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, BookOpen, Download, FileText, FileUp, Layers, PenLine, Pencil, Plus, Search, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react'
 import { QuestionCard } from '@/components/question-card'
 import { QuestionEditor, blankQuestion } from '@/components/question-editor'
+import { QuestionAttachmentButton } from '@/components/question-attachment'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/card'
 import { Alert, Checkbox, Field, Input, Select, Textarea } from '@/components/ui/form'
@@ -118,6 +119,10 @@ export function AddQuestions({ open, onClose, roomId, initialMethod = 'ai', defa
                   </div>
                 )}
                 <QuestionCard question={question} index={index} actions={<>
+                  <QuestionAttachmentButton
+                    imageUrl={question.imageUrl}
+                    onImageChange={(url) => setDrafts(list => list.map((q, i) => i === index ? { ...q, imageUrl: url } : q))}
+                  />
                   <button onClick={() => setEditing({ index, question })} aria-label="Edit" className="rounded p-1.5 text-subtle hover:bg-muted hover:text-foreground"><Pencil className="size-3.5" /></button>
                   <button onClick={() => setDrafts(list => list.filter((_, i) => i !== index))} aria-label="Remove" className="rounded p-1.5 text-subtle hover:bg-muted hover:text-danger"><Trash2 className="size-3.5" /></button>
                 </>} />
@@ -177,6 +182,7 @@ function AiGenerator({ defaults, inRoom, onResult }: { defaults?: GeneratorDefau
   const [pdf, setPdf] = useState<File | null>(null)
   const [text, setText] = useState('')
   const [topic, setTopic] = useState('')
+  const [description, setDescription] = useState('')
   const [mcqCount, setMcqCount] = useState(String(Math.min(defaults?.mcq || 10, 120)))
   const [codingCount, setCodingCount] = useState(String(Math.min(defaults?.coding ?? 0, 12)))
   const [bloomMode, setBloomMode] = useState<BloomMode>(defaults?.bloomPlan?.length ? 'custom' : 'mixed')
@@ -205,7 +211,7 @@ function AiGenerator({ defaults, inRoom, onResult }: { defaults?: GeneratorDefau
     setError('')
     if (mode === 'pdf' && !pdf) return setError('Choose a PDF first.')
     if (mode === 'text' && text.trim().length < 50) return setError('Paste at least a paragraph of content.')
-    if (mode === 'topic' && !topic.trim()) return setError('Enter a topic.')
+    if (mode === 'topic' && !topic.trim() && !description.trim()) return setError('Enter a topic or instructions.')
     if (perSetMcq + perSetCoding === 0) return setError('Ask for at least one question.')
     if (custom && draftCount(draft) > perSetMcq) return setError(`The Bloom levels add up to ${draftCount(draft)} questions but you asked for ${perSetMcq}. Increase the question count or lower a level.`)
     const assigned = custom ? draftCount(draft) : perSetMcq
@@ -222,6 +228,7 @@ function AiGenerator({ defaults, inRoom, onResult }: { defaults?: GeneratorDefau
     try {
       const form = new FormData()
       form.append('topic', topic)
+      form.append('description', description)
       form.append('mcqCount', String(perSetMcq))
       form.append('codingCount', String(perSetCoding))
       form.append('sets', String(useSets ? sets : 1))
@@ -270,6 +277,9 @@ function AiGenerator({ defaults, inRoom, onResult }: { defaults?: GeneratorDefau
       {mode === 'text' && <Field label="Content"><Textarea rows={7} value={text} onChange={e => setText(e.target.value)} placeholder="Paste lecture notes, a textbook section or a lesson plan…" /></Field>}
       <Field label={mode === 'topic' ? 'Topic' : 'Topic (optional)'} hint={mode === 'topic' ? 'Be specific, e.g. "Stacks and queues in C" rather than "Data structures".' : 'Helps focus the questions.'}>
         <Input value={topic} onChange={e => setTopic(e.target.value)} placeholder="e.g. Binary search trees" />
+      </Field>
+      <Field label="Instructions / Description for AI (optional)" hint="Tell the AI what faculty wants: specific question types, difficulty, focus areas, code language, or real-world problem scenarios.">
+        <Textarea rows={3} value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. Include questions on edge cases and time complexities. Focus on pointer arithmetic and memory leaks. Avoid basic syntax definitions." />
       </Field>
 
       <section className="flex flex-col gap-3">

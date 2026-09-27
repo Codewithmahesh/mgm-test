@@ -14,8 +14,8 @@ const teacherSchema = new Schema(
   { timestamps: true },
 )
 
-export const YEARS = ['FY', 'SY', 'TY', 'LY'] as const
-export const YEAR_LABELS: Record<string, string> = { FY: 'First Year', SY: 'Second Year', TY: 'Third Year', LY: 'Final Year' }
+export const YEARS = ['FY', 'SY', 'TY', 'B.Tech', 'LY'] as const
+export const YEAR_LABELS: Record<string, string> = { FY: 'First Year (FY)', SY: 'Second Year (SY)', TY: 'Third Year (TY)', 'B.Tech': 'B.Tech', LY: 'B.Tech' }
 export const BRANCHES: Record<string, string> = {
   CSE: 'COMPUTER SCIENCE & ENGINEERING (B.Tech)',
   AIML: 'Artificial Intelligence & Machine Learning (B.Tech)',
@@ -91,6 +91,7 @@ const questionSchema = new Schema(
     points: { type: Number, default: null },
     language: { type: String, default: '' },
     starterCode: { type: String, default: '' },
+    imageUrl: { type: String, default: '' },
     source: { type: String, enum: ['csv', 'ai', 'manual'], default: 'manual' },
   },
   { timestamps: true },
@@ -260,5 +261,6 @@ export function isObjectId(value: unknown): value is string {
 
 export function classLabel(classroom?: { class?: string | null; branch?: string | null; division?: string | null } | null) {
   if (!classroom) return ''
-  return [classroom.class, classroom.branch, classroom.division].filter(Boolean).join(' ')
+  const year = classroom.class === 'LY' ? 'B.Tech' : classroom.class
+  return [year, classroom.branch, classroom.division].filter(Boolean).join(' ')
 }

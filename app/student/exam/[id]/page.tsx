@@ -2,9 +2,10 @@
 
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Bookmark, BookmarkCheck, Check, ChevronLeft, ChevronRight, Clock3, CloudOff, Code2, Copy, Eraser, LayoutGrid, Loader2, Maximize, MonitorX, RotateCcw, Send, ShieldAlert, X } from 'lucide-react'
+import { AlertTriangle, Bookmark, BookmarkCheck, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleX, Clock3, CloudOff, Code2, Copy, Eraser, LayoutGrid, Loader2, Maximize, MonitorX, Play, RotateCcw, Send, ShieldAlert, Sliders, Terminal, X } from 'lucide-react'
 import { COLLEGE_NAME, Emblem } from '@/components/brand'
 import { CodeEditor } from '@/components/code-editor'
+import { RunCodeButton } from '@/components/compiler-panel'
 import { allowClipboardText, exitExamFullscreen, useProctoring, type ProctoringConfig } from '@/components/use-proctoring'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/card'
@@ -14,10 +15,10 @@ import { ApiError, LANGUAGE_OPTIONS, STARTER_CODE, api, clock, errorMessage, let
 import { INTEGRITY_EVENTS, type IntegrityEvent } from '@/lib/integrity'
 import { cn } from '@/lib/utils'
 
-type McqQuestion = { number: number; type: 'mcq' | 'tf'; text: string; options: string[]; topic: string; marks?: number }
-type CodingQuestion = { number: number; type: 'coding'; title: string; text: string; topic: string; inputFormat: string; outputFormat: string; constraints: string; samples: Sample[]; points: number; language: string; starterCode: string }
+type McqQuestion = { number: number; type: 'mcq' | 'tf'; text: string; imageUrl?: string; options: string[]; topic: string; marks?: number }
+type CodingQuestion = { number: number; type: 'coding'; title: string; text: string; imageUrl?: string; topic: string; inputFormat: string; outputFormat: string; constraints: string; samples: Sample[]; points: number; language: string; starterCode: string }
 type Question = McqQuestion | CodingQuestion
-type CodeAnswer = { language: string; code: string }
+type CodeAnswer = { language: string; code: string; passedCases?: number; totalCases?: number; marks?: number }
 type Answer = number | CodeAnswer | string | null
 
 type Paper = {
@@ -37,7 +38,7 @@ type Paper = {
 type Heartbeat = { status: 'in_progress' | 'submitted'; endsAt: string; serverNow: string; autoSubmitReason: string; violations: number; maxViolations: number }
 
 const isAnswered = (answer: Answer | undefined) => typeof answer === 'number' || (typeof answer === 'string' ? answer.trim() !== '' : Boolean(answer && typeof answer === 'object' && answer.code.trim()))
-const asCode = (answer: Answer | undefined): CodeAnswer | null => (answer && typeof answer === 'object' ? answer : typeof answer === 'string' && answer ? { language: '', code: answer } : null)
+const asCode = (answer: Answer | undefined): CodeAnswer | null => (answer && typeof answer === 'object' ? { language: answer.language, code: answer.code, passedCases: answer.passedCases, totalCases: answer.totalCases, marks: answer.marks } : typeof answer === 'string' && answer ? { language: '', code: answer } : null)
 const validLanguage = (value: string) => LANGUAGE_OPTIONS.some(option => option.value === value)
 
 /** A random id for this browser tab. It survives a refresh (sessionStorage) but not a new tab or device. */
@@ -494,6 +495,15 @@ function McqView({ question, total, selected, marks, negative, flagged, onSelect
             </div>
           </div>
           <h2 className="mt-6 whitespace-pre-wrap text-[17px] font-medium leading-8 text-foreground">{question.text}</h2>
+          {question.imageUrl && (
+            <div className="mt-4 max-w-2xl overflow-hidden rounded-lg border border-border bg-card p-1 shadow-xs">
+              <img
+                src={question.imageUrl}
+                alt={`Question ${question.number} diagram`}
+                className="max-h-80 w-auto max-w-full rounded object-contain"
+              />
+            </div>
+          )}
           <div role="radiogroup" className="mt-6 flex flex-col gap-2.5">
             {question.options.map((option, index) => {
               const active = selected === index
@@ -533,7 +543,24 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
   const template = (lang: string) => (question.starterCode && lang === (validLanguage(question.language) ? question.language : 'cpp') ? question.starterCode : STARTER_CODE[lang] ?? '')
   const [code, setCode] = useState(answer?.code || template(initialLanguage))
   const [copied, setCopied] = useState<number | null>(null)
-  const { confirm } = useFeedback()
+  
+  // Execution & Console States
+  const [isRunning, setIsRunning] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submittedAt, setSubmittedAt] = useState<string | null>(answer?.code ? 'Saved in session' : null)
+  const [consoleOpen, setConsoleOpen] = useState(true)
+  const [activeTab, setActiveTab] = useState<'testcases' | 'results' | 'terminal'>('testcases')
+  const [selectedCaseIdx, setSelectedCaseIdx] = useState(0)
+  const [customInputEnabled, setCustomInputEnabled] = useState(false)
+  const [customStdin, setCustomStdin] = useState('')
+  
+  // Result States
+  const [testResults, setTestResults] = useState<Array<{ testCase: number; passed: boolean; input: string; expected: string; actual: string }>>([])
+  const [overallPassed, setOverallPassed] = useState<boolean | null>(null)
+  const [terminalOutput, setTerminalOutput] = useState<{ stdout: string; stderr: string; time?: string | null; memory?: string | null } | null>(null)
+  const [execError, setExecError] = useState<string | null>(null)
+
+  const { confirm, toast } = useFeedback()
 
   function changeLanguage(next: string) {
     const untouched = !code.trim() || code === template(language)
@@ -541,67 +568,723 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
     if (untouched) setCode(template(next))
     if (answer) onChange({ language: next, code: untouched ? template(next) : code })
   }
+
   function edit(next: string) {
     setCode(next)
     onChange({ language, code: next })
   }
+
   async function reset() {
     if (!(await confirm({ title: 'Reset your code?', description: 'Your code for this problem will be replaced with the starter template.', confirmLabel: 'Reset code', tone: 'danger' }))) return
     edit(template(language))
+    toast('Code reset to default starter template.', 'info')
   }
+
+  // ── Run Code (Runs student's code against sample test cases or custom input) ──
+  const handleRun = useCallback(async () => {
+    if (isRunning || isSubmitting) return
+    setIsRunning(true)
+    setExecError(null)
+    setConsoleOpen(true)
+
+    try {
+      if (customInputEnabled) {
+        // Run with custom stdin -> output to terminal
+        const res = await fetch('/api/compile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            language,
+            code,
+            stdin: customStdin,
+          })
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          setExecError(data.error || `Execution error (${res.status})`)
+          setActiveTab('terminal')
+          return
+        }
+        if (data.run) {
+          setTerminalOutput(data.run)
+          setActiveTab('terminal')
+        }
+      } else {
+        // Run against sample test cases -> compare and show in Test Results tab
+        const samples = question.samples && question.samples.length > 0
+          ? question.samples.map(s => ({ input: s.input, expectedOutput: s.output }))
+          : [{ input: '', expectedOutput: '' }]
+
+        const res = await fetch('/api/compile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            language,
+            code,
+            testCases: samples,
+          })
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          setExecError(data.error || `Execution error (${res.status})`)
+          setActiveTab('results')
+          return
+        }
+        if (data.testResults) {
+          setTestResults(data.testResults)
+          setOverallPassed(data.overallPassed ?? false)
+          setActiveTab('results')
+        } else if (data.run) {
+          setTerminalOutput(data.run)
+          setActiveTab('terminal')
+        }
+      }
+    } catch {
+      setExecError('Could not reach compiler sandbox. Please ensure Docker container or compiler is running.')
+      setActiveTab('terminal')
+    } finally {
+      setIsRunning(false)
+    }
+  }, [isRunning, isSubmitting, language, code, customInputEnabled, customStdin, question.samples])
+
+  // ── Run Single Case (Runs a specific sample test case and shows output in Console) ──
+  const handleRunSingleCase = useCallback(async (caseIdx: number) => {
+    if (isRunning || isSubmitting) return
+    setIsRunning(true)
+    setExecError(null)
+    setConsoleOpen(true)
+
+    try {
+      const input = customInputEnabled
+        ? customStdin
+        : (question.samples && question.samples[caseIdx] ? question.samples[caseIdx].input : '')
+
+      const res = await fetch('/api/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          language,
+          code,
+          stdin: input,
+        })
+      })
+
+      const data = await res.json()
+      if (!res.ok) {
+        setExecError(data.error || `Execution error (${res.status})`)
+        setActiveTab('terminal')
+        return
+      }
+
+      if (data.run) {
+        setTerminalOutput(data.run)
+        setActiveTab('terminal')
+      }
+    } catch {
+      setExecError('Could not reach compiler sandbox.')
+      setActiveTab('terminal')
+    } finally {
+      setIsRunning(false)
+    }
+  }, [isRunning, isSubmitting, language, code, customInputEnabled, customStdin, question.samples])
+
+  // ── Submit Code (Evaluates all test cases, saves answer with marks, marks problem) ──
+  const handleSubmitCode = useCallback(async () => {
+    if (isRunning || isSubmitting) return
+    setIsSubmitting(true)
+    setExecError(null)
+    setConsoleOpen(true)
+
+    try {
+      // 1. Evaluate against all sample test cases
+      const samples = (question.samples && question.samples.length > 0)
+        ? question.samples.map(s => ({ input: s.input, expectedOutput: s.output }))
+        : [{ input: '', expectedOutput: '' }]
+
+      const payload = {
+        language,
+        code,
+        testCases: samples,
+      }
+
+      const res = await fetch('/api/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      const data = await res.json()
+      if (!res.ok) {
+        setExecError(data.error || `Submission error (${res.status})`)
+        setActiveTab('results')
+        return
+      }
+
+      let passedCount = 0
+      let totalCount = samples.length
+      let calculatedMarks = 0
+      const questionPoints = question.points ?? 10
+
+      if (data.testResults && Array.isArray(data.testResults)) {
+        setTestResults(data.testResults)
+        totalCount = data.testResults.length
+        passedCount = data.testResults.filter((r: { passed: boolean }) => r.passed).length
+        const allPassed = passedCount === totalCount
+        setOverallPassed(allPassed)
+        
+        // 100% score for all passed, proportional score for partial pass
+        calculatedMarks = totalCount > 0
+          ? (allPassed ? questionPoints : Math.round(((passedCount / totalCount) * questionPoints) * 100) / 100)
+          : 0
+
+        setActiveTab('results')
+      } else if (data.run) {
+        setTerminalOutput(data.run)
+        setActiveTab('terminal')
+      }
+
+      // 2. Save code & evaluation marks to attempt
+      const codeAnswerWithScore = {
+        language,
+        code,
+        passedCases: passedCount,
+        totalCases: totalCount,
+        marks: calculatedMarks,
+      }
+      onChange(codeAnswerWithScore)
+
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      setSubmittedAt(timeStr)
+
+      if (passedCount === totalCount && totalCount > 0) {
+        toast(`Accepted! All ${totalCount} test cases passed. +${calculatedMarks}/${questionPoints} marks awarded (100%).`, 'success')
+      } else if (passedCount > 0) {
+        const percent = Math.round((passedCount / totalCount) * 100)
+        toast(`Partial: ${passedCount}/${totalCount} test cases passed. +${calculatedMarks}/${questionPoints} marks awarded (${percent}%).`, 'info')
+      } else {
+        toast(`0/${totalCount} test cases passed. 0/${questionPoints} marks. You can improve your solution and submit again.`, 'error')
+      }
+    } catch {
+      setExecError('Network error while submitting code.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }, [isRunning, isSubmitting, language, code, question.samples, question.points, onChange, toast])
+
+  // Keyboard shortcut: Ctrl+Enter to Run, Ctrl+Shift+Enter to Submit
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          void handleSubmitCode()
+        } else {
+          void handleRun()
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [handleRun, handleSubmitCode])
 
   return (
     <div className="flex h-full flex-col lg:flex-row">
-      <section className="flex min-h-0 flex-col border-border lg:w-[46%] lg:border-r max-lg:max-h-[45%] max-lg:border-b">
+      {/* ── Left Pane: Problem Description ───────────────────────────────── */}
+      <section className="flex min-h-0 flex-col border-border lg:w-[44%] lg:border-r max-lg:max-h-[42%] max-lg:border-b bg-card">
+        {/* Problem Header */}
         <div className="flex items-center justify-between gap-3 border-b border-border bg-card px-5 py-3">
           <div className="flex min-w-0 items-center gap-2.5">
-            <Code2 className="size-4 shrink-0 text-violet" />
-            <h2 className="truncate text-[15px] font-semibold">{question.title}</h2>
+            <span className="flex size-7 items-center justify-center rounded-md bg-violet/10 font-mono text-xs font-semibold text-violet">
+              <Code2 className="size-4" />
+            </span>
+            <h2 className="truncate text-[15px] font-semibold text-foreground">{question.title}</h2>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">{question.points} marks</span>
-            <button onClick={onFlag} aria-label={flagged ? 'Unmark review' : 'Mark for review'} className={cn('rounded-md border p-1.5', flagged ? 'border-brand bg-warning-soft text-warning' : 'border-border text-muted-foreground hover:text-foreground')}>{flagged ? <BookmarkCheck className="size-3.5" /> : <Bookmark className="size-3.5" />}</button>
+            <span className="rounded-full bg-primary-soft px-2.5 py-0.5 text-xs font-semibold text-primary">
+              {question.points} marks
+            </span>
+            {submittedAt && (
+              <span className="hidden items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 sm:inline-flex">
+                <Check className="size-3" />Submitted
+              </span>
+            )}
+            <button
+              onClick={onFlag}
+              aria-label={flagged ? 'Unmark review' : 'Mark for review'}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
+                flagged ? 'border-brand bg-warning-soft text-warning' : 'border-border text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {flagged ? <BookmarkCheck className="size-3.5" /> : <Bookmark className="size-3.5" />}
+              <span className="hidden sm:inline">{flagged ? 'Marked' : 'Review'}</span>
+            </button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto bg-card px-5 py-5">
-          <p className="prose-statement">{question.text}</p>
-          {question.inputFormat && <StatementSection title="Input format">{question.inputFormat}</StatementSection>}
-          {question.outputFormat && <StatementSection title="Output format">{question.outputFormat}</StatementSection>}
-          {question.constraints && <StatementSection title="Constraints"><span className="font-mono text-[13px]">{question.constraints}</span></StatementSection>}
-          {question.samples.map((sample, i) => (
-            <div key={i} className="mt-6">
-              <h3 className="text-sm font-semibold">Sample {i + 1}</h3>
-              <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                {(['input', 'output'] as const).map(kind => (
-                  <div key={kind} className="overflow-hidden rounded-md border border-border">
-                    <div className="flex items-center justify-between bg-muted px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      {kind}
-                      {kind === 'input' && <button onClick={() => { allowClipboardText(sample.input); navigator.clipboard?.writeText(sample.input); setCopied(i); window.setTimeout(() => setCopied(null), 1200) }} className="flex items-center gap-1 normal-case tracking-normal hover:text-foreground">{copied === i ? <Check className="size-3" /> : <Copy className="size-3" />}{copied === i ? 'Copied' : 'Copy'}</button>}
-                    </div>
-                    <pre className="overflow-x-auto bg-card p-3 font-mono text-[13px] leading-5">{sample[kind] || ' '}</pre>
-                  </div>
-                ))}
+
+        {/* Problem Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-5 text-foreground space-y-6">
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Problem Description</h3>
+            <p className="mt-2 text-[14.5px] leading-7 text-foreground/90 whitespace-pre-wrap">{question.text}</p>
+            {question.imageUrl && (
+              <div className="mt-3 max-w-full overflow-hidden rounded-lg border border-border bg-card p-1 shadow-xs">
+                <img
+                  src={question.imageUrl}
+                  alt={`${question.title} diagram`}
+                  className="max-h-72 w-auto max-w-full rounded object-contain"
+                />
               </div>
-              {sample.explanation && <p className="mt-2 text-[13px] leading-6 text-muted-foreground"><span className="font-medium text-foreground">Explanation:</span> {sample.explanation}</p>}
+            )}
+          </div>
+
+          {question.inputFormat && (
+            <div className="rounded-lg border border-border bg-muted/30 p-3.5">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Input Format</h4>
+              <p className="mt-1.5 whitespace-pre-wrap text-[13.5px] leading-6 text-foreground">{question.inputFormat}</p>
             </div>
-          ))}
+          )}
+
+          {question.outputFormat && (
+            <div className="rounded-lg border border-border bg-muted/30 p-3.5">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Output Format</h4>
+              <p className="mt-1.5 whitespace-pre-wrap text-[13.5px] leading-6 text-foreground">{question.outputFormat}</p>
+            </div>
+          )}
+
+          {question.constraints && (
+            <div className="rounded-lg border border-border bg-muted/30 p-3.5">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Constraints</h4>
+              <pre className="mt-1.5 whitespace-pre-wrap font-mono text-[12.5px] text-foreground/90">{question.constraints}</pre>
+            </div>
+          )}
+
+          {/* Sample Test Cases */}
+          {question.samples && question.samples.length > 0 && (
+            <div className="space-y-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sample Test Cases</h3>
+              {question.samples.map((sample, i) => (
+                <div key={i} className="overflow-hidden rounded-lg border border-border bg-muted/20">
+                  <div className="flex items-center justify-between border-b border-border bg-muted/60 px-3.5 py-1.5 text-xs font-semibold">
+                    <span>Sample Case {i + 1}</span>
+                    <button
+                      onClick={() => {
+                        allowClipboardText(sample.input)
+                        navigator.clipboard?.writeText(sample.input)
+                        setCopied(i)
+                        window.setTimeout(() => setCopied(null), 1200)
+                      }}
+                      className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                    >
+                      {copied === i ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
+                      {copied === i ? 'Copied' : 'Copy Input'}
+                    </button>
+                  </div>
+                  <div className="grid gap-2 p-3 sm:grid-cols-2">
+                    <div>
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase">Input</span>
+                      <pre className="mt-1 max-h-32 overflow-x-auto rounded border border-border bg-card p-2 font-mono text-[12px]">{sample.input || ' '}</pre>
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase">Expected Output</span>
+                      <pre className="mt-1 max-h-32 overflow-x-auto rounded border border-border bg-card p-2 font-mono text-[12px]">{sample.output || ' '}</pre>
+                    </div>
+                  </div>
+                  {sample.explanation && (
+                    <p className="border-t border-border px-3.5 py-2 text-xs text-muted-foreground">
+                      <span className="font-semibold text-foreground">Explanation: </span>{sample.explanation}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
+      {/* ── Right Pane: Professional Code Editor & Interactive Console ────── */}
       <section className="flex min-h-0 flex-1 flex-col bg-[#1e1e1e]">
-        <div className="flex items-center justify-between gap-2 border-b border-black/40 bg-[#252526] px-3 py-2">
-          <Select value={language} onChange={e => changeLanguage(e.target.value)} aria-label="Language" className="h-8 w-44 border-white/10 bg-[#3c3c3c] text-[13px] text-white focus:border-primary">
-            {LANGUAGE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </Select>
-          <button onClick={reset} className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-white/60 hover:bg-white/10 hover:text-white"><RotateCcw className="size-3.5" />Reset</button>
+        {/* Editor Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/40 bg-[#252526] px-3.5 py-2">
+          {/* Left toolbar items */}
+          <div className="flex items-center gap-2.5">
+            <Select
+              value={language}
+              onChange={e => changeLanguage(e.target.value)}
+              aria-label="Select Programming Language"
+              className="h-8 w-44 rounded border-white/10 bg-[#333333] text-[13px] font-medium text-white focus:border-primary focus:ring-1 focus:ring-primary"
+            >
+              {LANGUAGE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </Select>
+
+            <button
+              onClick={reset}
+              className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+              title="Reset code template"
+            >
+              <RotateCcw className="size-3.5" />
+              <span className="hidden sm:inline">Reset</span>
+            </button>
+          </div>
+
+          {/* Right toolbar action buttons */}
+          <div className="flex items-center gap-2">
+            {/* Custom Input Toggle */}
+            <label className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-white/70 hover:text-white cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={customInputEnabled}
+                onChange={e => {
+                  setCustomInputEnabled(e.target.checked)
+                  if (e.target.checked) setActiveTab('testcases')
+                }}
+                className="size-3.5 rounded accent-primary cursor-pointer"
+              />
+              <span className="hidden md:inline">Custom Input</span>
+            </label>
+
+            {/* Run Code Button */}
+            <button
+              onClick={() => void handleRun()}
+              disabled={isRunning || isSubmitting}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-semibold shadow-sm transition-all',
+                isRunning
+                  ? 'cursor-wait bg-white/15 text-white/50'
+                  : 'bg-white/10 text-white hover:bg-white/20 active:scale-95'
+              )}
+              title="Run code against sample test cases (Ctrl + Enter)"
+            >
+              {isRunning ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5 fill-current" />}
+              <span>{isRunning ? 'Running…' : 'Run Code'}</span>
+            </button>
+
+            {/* Submit Code Button */}
+            <button
+              onClick={() => void handleSubmitCode()}
+              disabled={isRunning || isSubmitting}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-4 py-1.5 text-xs font-semibold text-white shadow-md transition-all',
+                isSubmitting
+                  ? 'cursor-wait bg-emerald-700 opacity-70'
+                  : 'bg-emerald-600 hover:bg-emerald-500 active:scale-95'
+              )}
+              title="Submit code for final evaluation (Ctrl + Shift + Enter)"
+            >
+              {isSubmitting ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
+              <span>{isSubmitting ? 'Submitting…' : 'Submit Code'}</span>
+            </button>
+          </div>
         </div>
-        <div className="min-h-0 flex-1"><CodeEditor value={code} onChange={edit} language={language} /></div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-black/40 bg-[#252526] px-3 py-2">
-          <p className="text-xs text-white/50">Saved automatically. Graded by your faculty after the exam.</p>
+
+        {/* Monaco Editor Container */}
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <CodeEditor value={code} onChange={edit} language={language} />
+        </div>
+
+        {/* ── Collapsible Bottom Console Drawer ────────────────────────────── */}
+        <div className={cn('flex flex-col border-t border-black/40 bg-[#1e1e1e] transition-all', consoleOpen ? 'h-64' : 'h-9')}>
+          {/* Console Header Tabs */}
+          <div className="flex items-center justify-between border-b border-black/30 bg-[#252526] px-3">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => { setActiveTab('testcases'); setConsoleOpen(true) }}
+                className={cn(
+                  'flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors',
+                  activeTab === 'testcases' && consoleOpen
+                    ? 'border-primary text-white'
+                    : 'border-transparent text-white/60 hover:text-white'
+                )}
+              >
+                <Sliders className="size-3.5" />
+                <span>Test Cases</span>
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('results'); setConsoleOpen(true) }}
+                className={cn(
+                  'flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors',
+                  activeTab === 'results' && consoleOpen
+                    ? 'border-primary text-white'
+                    : 'border-transparent text-white/60 hover:text-white'
+                )}
+              >
+                <CheckCircle2 className="size-3.5" />
+                <span>Test Results</span>
+                {overallPassed !== null && (
+                  <span className={cn('ml-1 rounded px-1.5 py-0.2 text-[10px] font-bold', overallPassed ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400')}>
+                    {overallPassed ? 'PASSED' : 'FAILED'}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('terminal'); setConsoleOpen(true) }}
+                className={cn(
+                  'flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors',
+                  activeTab === 'terminal' && consoleOpen
+                    ? 'border-primary text-white'
+                    : 'border-transparent text-white/60 hover:text-white'
+                )}
+              >
+                <Terminal className="size-3.5" />
+                <span>Console</span>
+              </button>
+            </div>
+
+            <button
+              onClick={() => setConsoleOpen(!consoleOpen)}
+              className="rounded p-1 text-white/50 hover:bg-white/10 hover:text-white"
+              title={consoleOpen ? 'Collapse console' : 'Expand console'}
+            >
+              {consoleOpen ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+            </button>
+          </div>
+
+          {/* Console Content Area */}
+          {consoleOpen && (
+            <div className="min-h-0 flex-1 overflow-y-auto p-3.5 font-mono text-[12.5px] text-white/90">
+              {/* 1. Test Cases Tab */}
+              {activeTab === 'testcases' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-white/50">Select a test case or provide custom input to run:</span>
+                    <button
+                      onClick={() => void handleRunSingleCase(selectedCaseIdx)}
+                      disabled={isRunning || isSubmitting}
+                      className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1 text-xs font-medium text-white hover:bg-white/20 transition-colors"
+                    >
+                      <Play className="size-3 fill-current text-emerald-400" />
+                      <span>{customInputEnabled ? 'Run Custom Input' : `Run Case ${selectedCaseIdx + 1}`}</span>
+                    </button>
+                  </div>
+
+                  {customInputEnabled ? (
+                    <div>
+                      <label className="block text-xs font-semibold text-white/70 uppercase tracking-wider mb-1.5">Custom Standard Input (stdin)</label>
+                      <textarea
+                        rows={5}
+                        value={customStdin}
+                        onChange={e => setCustomStdin(e.target.value)}
+                        placeholder="Enter custom input to feed into your program..."
+                        className="w-full rounded border border-white/15 bg-[#141414] p-2.5 font-mono text-xs text-white focus:border-primary focus:outline-none"
+                      />
+                    </div>
+                  ) : question.samples && question.samples.length > 0 ? (
+                    <div>
+                      {/* Case selector pills */}
+                      <div className="flex flex-wrap gap-1.5 mb-3">
+                        {question.samples.map((_, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => setSelectedCaseIdx(idx)}
+                            className={cn(
+                              'rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                              selectedCaseIdx === idx ? 'bg-white/20 text-white font-semibold ring-1 ring-white/30' : 'bg-white/5 text-white/60 hover:bg-white/10'
+                            )}
+                          >
+                            Case {idx + 1}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Selected Case View */}
+                      {question.samples[selectedCaseIdx] && (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wide mb-1">stdin (Input)</div>
+                            <pre className="max-h-28 overflow-x-auto rounded border border-white/10 bg-[#141414] p-2.5 text-xs text-white">
+                              {question.samples[selectedCaseIdx].input || <span className="italic text-white/30">(empty)</span>}
+                            </pre>
+                          </div>
+                          <div>
+                            <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wide mb-1">Expected stdout</div>
+                            <pre className="max-h-28 overflow-x-auto rounded border border-white/10 bg-[#141414] p-2.5 text-xs text-emerald-300">
+                              {question.samples[selectedCaseIdx].output || <span className="italic text-white/30">(empty)</span>}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-xs text-white/50">
+                      No sample test cases configured for this problem. You can enable <span className="font-semibold text-white">Custom Input</span> above to provide custom stdin.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 2. Test Results Tab */}
+              {activeTab === 'results' && (
+                <div>
+                  {isRunning || isSubmitting ? (
+                    <div className="flex items-center gap-2 text-xs text-white/60 py-4">
+                      <Loader2 className="size-4 animate-spin text-primary" />
+                      <span>Compiling and executing code in sandbox…</span>
+                    </div>
+                  ) : execError ? (
+                    <div className="rounded border border-red-500/30 bg-red-500/10 p-3 text-red-400">
+                      <div className="font-semibold">Execution Error</div>
+                      <pre className="mt-1 whitespace-pre-wrap text-xs">{execError}</pre>
+                    </div>
+                  ) : testResults.length > 0 ? (
+                    <div className="space-y-3">
+                      {/* Summary Banner with Score & Percentage */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#252526] p-3">
+                        <div className="flex items-center gap-2">
+                          {overallPassed ? (
+                            <span className="flex items-center gap-1.5 font-semibold text-emerald-400 text-sm">
+                              <CheckCircle2 className="size-4" />Accepted (100% Score) — {question.points} / {question.points} marks
+                            </span>
+                          ) : testResults.some(r => r.passed) ? (
+                            <span className="flex items-center gap-1.5 font-semibold text-amber-400 text-sm">
+                              <AlertTriangle className="size-4" />Partially Passed ({Math.round((testResults.filter(r => r.passed).length / testResults.length) * 100)}% Score) — {Math.round(((testResults.filter(r => r.passed).length / testResults.length) * question.points) * 100) / 100} / {question.points} marks
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1.5 font-semibold text-red-400 text-sm">
+                              <CircleX className="size-4" />Wrong Answer (0% Score) — 0 / {question.points} marks
+                            </span>
+                          )}
+                        </div>
+                        <span className="rounded bg-white/10 px-2 py-0.5 font-mono text-xs text-white/80">
+                          {testResults.filter(r => r.passed).length} of {testResults.length} cases passed
+                        </span>
+                      </div>
+
+                      {/* Case selector pills for results */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {testResults.map((tr, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => setSelectedCaseIdx(idx)}
+                            className={cn(
+                              'flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                              selectedCaseIdx === idx ? 'ring-1 ring-white/40' : '',
+                              tr.passed ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'
+                            )}
+                          >
+                            <span className={cn('size-1.5 rounded-full', tr.passed ? 'bg-emerald-400' : 'bg-red-400')} />
+                            Case {tr.testCase}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Detail of selected result */}
+                      {testResults[selectedCaseIdx] && (
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div>
+                            <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wide mb-1">Input</div>
+                            <pre className="max-h-24 overflow-x-auto rounded border border-white/10 bg-[#141414] p-2 text-xs text-white">
+                              {testResults[selectedCaseIdx].input || '(empty)'}
+                            </pre>
+                          </div>
+                          <div>
+                            <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wide mb-1">Expected Output</div>
+                            <pre className="max-h-24 overflow-x-auto rounded border border-white/10 bg-[#141414] p-2 text-xs text-emerald-300">
+                              {testResults[selectedCaseIdx].expected || '(empty)'}
+                            </pre>
+                          </div>
+                          <div>
+                            <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wide mb-1">Your Output</div>
+                            <pre className={cn('max-h-24 overflow-x-auto rounded border p-2 text-xs', testResults[selectedCaseIdx].passed ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300' : 'border-red-500/30 bg-red-500/5 text-red-300')}>
+                              {testResults[selectedCaseIdx].actual || '(empty)'}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-xs text-white/50">
+                      Click <span className="font-semibold text-emerald-400">Submit Code</span> to evaluate all test cases for marks.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 3. Terminal Output Tab */}
+              {activeTab === 'terminal' && (
+                <div>
+                  {isRunning || isSubmitting ? (
+                    <div className="flex items-center gap-2 text-xs text-white/60 py-4">
+                      <Loader2 className="size-4 animate-spin text-primary" />
+                      <span>Executing in sandbox…</span>
+                    </div>
+                  ) : execError ? (
+                    <pre className="whitespace-pre-wrap text-red-400 bg-red-950/20 p-2.5 rounded border border-red-500/20">{execError}</pre>
+                  ) : terminalOutput ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between border-b border-white/10 pb-2 text-xs text-white/50">
+                        <div className="flex items-center gap-3">
+                          {terminalOutput.time && <span>Runtime: <strong className="text-white">{terminalOutput.time}</strong></span>}
+                          {terminalOutput.memory && <span>Memory: <strong className="text-white">{terminalOutput.memory}</strong></span>}
+                        </div>
+                        <span className="text-emerald-400 font-medium text-[11px]">Execution Complete</span>
+                      </div>
+
+                      {/* Standard Output */}
+                      <div>
+                        <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wide mb-1">Program Output (stdout)</div>
+                        {terminalOutput.stdout ? (
+                          <pre className="max-h-36 overflow-x-auto rounded border border-white/10 bg-[#141414] p-2.5 text-xs text-emerald-300 whitespace-pre-wrap">
+                            {terminalOutput.stdout}
+                          </pre>
+                        ) : (
+                          <p className="text-xs italic text-white/40">No output printed.</p>
+                        )}
+                      </div>
+
+                      {/* Standard Error (if any) */}
+                      {terminalOutput.stderr && (
+                        <div>
+                          <div className="text-[11px] font-semibold text-red-400 uppercase tracking-wide mb-1">Errors & Diagnostics (stderr)</div>
+                          <pre className="max-h-36 overflow-x-auto rounded border border-red-500/30 bg-red-950/20 p-2.5 text-xs text-red-300 whitespace-pre-wrap">
+                            {terminalOutput.stderr}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs italic text-white/40">Terminal output will appear here after running code.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Exam Navigation Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-black/40 bg-[#252526] px-4 py-2">
+          <div className="flex items-center gap-2">
+            <span className="flex size-2 rounded-full bg-emerald-400" />
+            <span className="text-xs text-white/60">
+              {submittedAt ? `Saved · ${submittedAt}` : 'Saved automatically'}
+            </span>
+          </div>
+
           <div className="flex items-center gap-2">
             <span className="text-xs tabular-nums text-white/40">{position}</span>
-            <Button size="sm" variant="outline" onClick={onPrev} disabled={!onPrev} className="border-white/15 bg-transparent text-white hover:bg-white/10"><ChevronLeft />Prev</Button>
-            <Button size="sm" onClick={onNext} disabled={!onNext}>Next<ChevronRight /></Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onPrev}
+              disabled={!onPrev}
+              className="border-white/15 bg-transparent text-white hover:bg-white/10"
+            >
+              <ChevronLeft className="size-4" />Previous
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                void handleSubmitCode()
+                onNext?.()
+              }}
+              disabled={!onNext}
+              className="bg-primary text-primary-foreground hover:bg-primary-hover"
+            >
+              Save & Next<ChevronRight className="size-4" />
+            </Button>
           </div>
         </div>
       </section>

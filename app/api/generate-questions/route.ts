@@ -58,6 +58,7 @@ export const POST = handler(async (request: Request) => {
 
   const fields = await readFields(request)
   const topic = fields.topic.slice(0, 300)
+  const description = fields.description.slice(0, 3000)
   const sourceText = fields.sourceText.slice(0, 80_000)
   const sets = clamp(fields.sets, 1, 10) || 1
   const mode = fields.bloomMode === 'custom' || (BLOOM_LEVELS as readonly string[]).includes(fields.bloomMode) ? fields.bloomMode : 'mixed'
@@ -72,7 +73,7 @@ export const POST = handler(async (request: Request) => {
   const mcqCount = perSet.reduce((a, b) => a + b, 0) * sets
   const codingCount = clamp(fields.codingCount, 0, MAX_CODING) * sets
 
-  if (!topic && !sourceText && !fields.pdf) throw new HttpError(400, 'Add a topic, paste content, or upload a PDF first.')
+  if (!topic && !sourceText && !fields.pdf && !description) throw new HttpError(400, 'Add a topic, description, paste content, or upload a PDF first.')
   if (mcqCount + codingCount === 0) throw new HttpError(400, 'Ask for at least one MCQ or coding problem.')
   if (mcqCount > MAX_MCQS) throw new HttpError(400, `That is ${mcqCount} MCQs in total; generate at most ${MAX_MCQS} at a time (fewer sets or fewer questions per set).`)
   if (codingCount > MAX_CODING) throw new HttpError(400, `That is ${codingCount} coding problems in total; generate at most ${MAX_CODING} at a time.`)
@@ -83,7 +84,8 @@ export const POST = handler(async (request: Request) => {
   parts.push({
     text: [
       `Create exactly ${mcqCount} multiple-choice questions and exactly ${codingCount} coding problems.`,
-      `Topic: ${topic || 'infer it from the source material'}.`,
+      `Topic: ${topic || (description ? 'derived from instructions' : 'infer it from the source material')}.`,
+      description ? `Faculty instructions / Specific description:\n"""\n${description}\n"""\nStrictly follow the faculty instructions above when crafting question content, focus areas, difficulty, scenarios, and constraints.` : '',
       `Classify every question by Bloom's revised taxonomy (${BLOOM_GUIDE}). The "bloom" field must be the level the question genuinely tests.`,
       mcqCount ? `MCQs per Bloom level, exactly: ${mcqLevels.map(l => `${l.count} ${l.level}`).join(', ')}. Higher levels need scenario, code-reading, comparison or judgement questions, not recall.` : '',
       codingCount ? `Coding problems are at the apply, analyze or create level${mode !== 'mixed' && mode !== 'custom' ? `, preferably ${mode}` : ''}.` : '',
@@ -147,7 +149,7 @@ async function readFields(request: Request) {
 
 function commonFields(text: (name: string) => string | undefined) {
   return {
-    topic: text('topic') ?? '', sourceText: text('sourceText') ?? '', bloomMode: text('bloomMode') ?? '',
+    topic: text('topic') ?? '', description: text('description') ?? '', sourceText: text('sourceText') ?? '', bloomMode: text('bloomMode') ?? '',
     count: text('count'), mcqCount: text('mcqCount'), codingCount: text('codingCount'), sets: text('sets'),
     levels: Object.fromEntries(BLOOM_LEVELS.map(level => [level, text(level)])) as Record<string, string | undefined>,
   }

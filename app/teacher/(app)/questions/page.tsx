@@ -9,6 +9,7 @@ import { RoomStatusBadge } from '@/components/common'
 import { PaperView } from '@/components/paper-view'
 import { QuestionCard } from '@/components/question-card'
 import { QuestionEditor } from '@/components/question-editor'
+import { QuestionAttachmentButton } from '@/components/question-attachment'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Badge, Card, EmptyState, PageHeader, Spinner, StatCard } from '@/components/ui/card'
 import { Input, Select } from '@/components/ui/form'
@@ -200,6 +201,18 @@ function QuestionBank() {
                           <QuestionCard key={question.id} question={question} index={index}
                             meta={<span className="text-xs text-muted-foreground">· {question.source === 'ai' ? 'AI' : question.source === 'csv' ? 'CSV' : 'Manual'}</span>}
                             actions={<>
+                              <QuestionAttachmentButton
+                                imageUrl={question.imageUrl}
+                                onImageChange={async (url) => {
+                                  try {
+                                    await api(`/api/questions/${question.id}`, { method: 'PATCH', body: { imageUrl: url } })
+                                    toast(url ? 'Image attached.' : 'Image removed.')
+                                    refresh(group.key)
+                                  } catch (err) {
+                                    toast(errorMessage(err), 'error')
+                                  }
+                                }}
+                              />
                               <button onClick={() => setEditing({ group: group.key, question })} aria-label="Edit question" title="Edit" className="rounded p-1.5 text-subtle hover:bg-muted hover:text-foreground"><Pencil className="size-3.5" /></button>
                               <button onClick={() => removeQuestion(group.key, question)} aria-label="Delete question" title="Delete" className="rounded p-1.5 text-subtle hover:bg-muted hover:text-danger"><Trash2 className="size-3.5" /></button>
                             </>} />

@@ -16,12 +16,16 @@ export const GET = handler(async (_request: Request, context: Context) => {
   const room = await ExamRoom.findById(attempt.room).select('title code status showResults codingMarks').lean()
   const visible = room ? resultsVisible(room, attempt) : false
 
+  const isSuspended = Boolean(attempt.autoSubmitted && (attempt.autoSubmitReason === 'violations' || attempt.autoSubmitReason === 'faculty'))
+
   const base = {
     id: String(attempt._id),
     room: { title: room?.title ?? 'Deleted exam', code: room?.code ?? '', status: room?.status ?? 'closed', showResults: room?.showResults ?? 'after_end' },
     status: attempt.status,
     autoSubmitted: attempt.autoSubmitted ?? false,
     autoSubmitReason: attempt.autoSubmitReason ?? '',
+    suspended: isSuspended,
+    suspendedReason: isSuspended ? attempt.autoSubmitReason ?? '' : '',
     startedAt: attempt.startedAt,
     submittedAt: attempt.submittedAt ?? null,
     totalQuestions: attempt.questions.length,
@@ -30,7 +34,7 @@ export const GET = handler(async (_request: Request, context: Context) => {
   }
   if (!visible) return NextResponse.json(base)
 
-  const questions = await Question.find({ _id: { $in: attempt.questions } }).select('type text options correctIndex explanation title points').lean()
+  const questions = await Question.find({ _id: { $in: attempt.questions } }).select('type text options correctIndex explanation title points imageUrl').lean()
   const byId = new Map(questions.map(q => [String(q._id), q]))
   const marks = new Map(attempt.codingMarks.map(m => [String(m.question), m]))
   return NextResponse.json({
@@ -48,9 +52,9 @@ export const GET = handler(async (_request: Request, context: Context) => {
       if (!q) return { number: index + 1, type: 'removed' }
       if (q.type === 'coding') {
         const mark = marks.get(String(id))
-        return { number: index + 1, type: 'coding', title: q.title, points: q.points ?? room?.codingMarks ?? 10, answer: codingAnswer(answer), marks: mark?.marks ?? null, feedback: mark?.feedback ?? '' }
+        return { number: index + 1, type: 'coding', title: q.title, imageUrl: q.imageUrl ?? '', points: q.points ?? room?.codingMarks ?? 10, answer: codingAnswer(answer), marks: mark?.marks ?? null, feedback: mark?.feedback ?? '' }
       }
-      return { number: index + 1, type: q.type, text: q.text, options: q.options, correctIndex: q.correctIndex, selected: typeof answer === 'number' ? answer : null, explanation: q.explanation ?? '', marks: attempt.questionMarks?.[index] ?? attempt.marksPerQuestion }
+      return { number: index + 1, type: q.type, text: q.text, imageUrl: q.imageUrl ?? '', options: q.options, correctIndex: q.correctIndex, selected: typeof answer === 'number' ? answer : null, explanation: q.explanation ?? '', marks: attempt.questionMarks?.[index] ?? attempt.marksPerQuestion }
     }),
   })
 })

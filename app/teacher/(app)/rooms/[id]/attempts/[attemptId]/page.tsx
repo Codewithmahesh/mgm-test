@@ -15,8 +15,8 @@ import { api, errorMessage, formatDate, formatDuration, languageLabel, letter, t
 import { cn } from '@/lib/utils'
 
 type Item =
-  | { index: number; questionId: string; type: 'mcq' | 'tf'; text: string; options: string[]; correctIndex: number | null; selected: number | null; explanation: string; marks?: number; bloom?: string | null }
-  | { index: number; questionId: string; type: 'coding'; title: string; text: string; points: number; samples: Sample[]; answer: { language: string; code: string } | null; marks: number | null; feedback: string }
+  | { index: number; questionId: string; type: 'mcq' | 'tf'; text: string; imageUrl?: string; options: string[]; correctIndex: number | null; selected: number | null; explanation: string; marks?: number; bloom?: string | null }
+  | { index: number; questionId: string; type: 'coding'; title: string; text: string; imageUrl?: string; points: number; samples: Sample[]; answer: { language: string; code: string } | null; marks: number | null; feedback: string }
   | { index: number; questionId: string; type: 'removed'; text: string }
 
 type Detail = {
@@ -101,6 +101,11 @@ export default function AttemptReviewPage({ params }: { params: Promise<{ id: st
                     <p className="text-sm leading-6"><span className="mr-2 font-mono text-xs text-subtle">Q{item.index + 1}</span>{item.text}</p>
                     {item.selected === null ? <Badge><Minus className="size-3" />Skipped</Badge> : item.selected === item.correctIndex ? <Badge tone="green"><Check className="size-3" />+{item.marks ?? room.marksPerQuestion}</Badge> : <Badge tone="red"><X className="size-3" />{room.negativeMarks ? `−${room.negativeMarks}` : '0'}</Badge>}
                   </div>
+                  {item.imageUrl && (
+                    <div className="mt-2.5 max-w-lg overflow-hidden rounded-md border border-border bg-muted/20 p-1">
+                      <img src={item.imageUrl} alt="Question diagram" className="max-h-60 w-auto max-w-full rounded object-contain" />
+                    </div>
+                  )}
                   <ul className="mt-3 grid gap-1.5 sm:grid-cols-2">
                     {item.options.map((option, i) => {
                       const correct = i === item.correctIndex
@@ -211,7 +216,16 @@ function CodingReview({ item, grade, onGrade }: { item: Extract<Item, { type: 'c
         </div>
         {item.marks == null ? (item.answer ? <Badge tone="violet">Needs grading</Badge> : <Badge>Not attempted</Badge>) : <Badge tone="green">{item.marks} / {item.points}</Badge>}
       </div>
-      {showStatement && <p className="whitespace-pre-wrap border-b border-border bg-muted/40 px-5 py-3 text-[13px] leading-6">{item.text}</p>}
+      {showStatement && (
+        <div className="border-b border-border bg-muted/40 px-5 py-3 text-[13px] leading-6">
+          <p className="whitespace-pre-wrap">{item.text}</p>
+          {item.imageUrl && (
+            <div className="mt-2 max-w-lg overflow-hidden rounded-md border border-border bg-card p-1">
+              <img src={item.imageUrl} alt="Coding diagram" className="max-h-60 w-auto max-w-full rounded object-contain" />
+            </div>
+          )}
+        </div>
+      )}
       {item.answer ? (
         <div className="overflow-hidden border-b border-border">
           <div className="flex items-center justify-between bg-[#252526] px-4 py-1.5 text-xs text-white/70"><span>{languageLabel(item.answer.language)}</span><span>{lines} lines</span></div>

@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, Paperclip } from 'lucide-react'
 import { BloomBadge, TypeBadge } from '@/components/common'
+import { QuestionImageDisplay } from '@/components/question-attachment'
 import { letter, type DraftQuestion } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -28,6 +29,11 @@ export function QuestionCard({ question, index, actions, meta, defaultOpen = fal
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <TypeBadge type={question.type} />
             <BloomBadge level={question.bloom} />
+            {question.imageUrl && (
+              <span className="inline-flex items-center gap-1 rounded border border-primary-border/60 bg-primary-soft/60 px-1.5 py-px text-[11px] font-medium text-primary">
+                <Paperclip className="size-3" /> Image
+              </span>
+            )}
             {question.set && <span className="rounded border border-border px-1.5 py-px text-[11px] font-semibold text-muted-foreground">Set {question.set}</span>}
             {question.topic && <span className="text-xs text-muted-foreground">{question.topic}</span>}
             {question.type === 'coding' && question.points != null && <span className="text-xs text-muted-foreground">· {question.points} marks</span>}
@@ -44,6 +50,9 @@ export function QuestionCard({ question, index, actions, meta, defaultOpen = fal
           {question.type === 'coding' ? (
             <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/40 p-3 text-[13px]">
               <p className="whitespace-pre-wrap leading-6">{question.text}</p>
+              {question.imageUrl && (
+                <QuestionImageDisplay src={question.imageUrl} alt={question.title || 'Coding problem diagram'} />
+              )}
               {question.inputFormat && <Section label="Input">{question.inputFormat}</Section>}
               {question.outputFormat && <Section label="Output">{question.outputFormat}</Section>}
               {question.constraints && <Section label="Constraints"><span className="font-mono">{question.constraints}</span></Section>}
@@ -56,6 +65,11 @@ export function QuestionCard({ question, index, actions, meta, defaultOpen = fal
             </div>
           ) : (
             <>
+              {question.imageUrl && (
+                <div className="mb-3">
+                  <QuestionImageDisplay src={question.imageUrl} alt="Question diagram" />
+                </div>
+              )}
               <ul className="grid gap-1.5 sm:grid-cols-2">
                 {question.options.map((option, i) => (
                   <li key={i} className={cn('flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-[13px]', i === question.correctIndex ? 'border-success-border bg-success-soft font-medium text-success-ink' : 'border-border text-muted-foreground')}>

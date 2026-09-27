@@ -153,14 +153,28 @@ export async function dealQuestions(room: RoomLike) {
   return { questions: paper.map(q => byId.get(q.id)!._id), marks: paper.map(q => q.marks), set }
 }
 
-export type CodingAnswer = { language: string; code: string }
+export type CodingAnswer = {
+  language: string
+  code: string
+  passedCases?: number
+  totalCases?: number
+  marks?: number
+}
 
-/** Coding answers used to be plain strings; now they're { language, code }. */
+/** Coding answers can be plain strings or structured objects with optional evaluation results. */
 export function codingAnswer(value: unknown): CodingAnswer | null {
   if (typeof value === 'string') return value.trim() ? { language: '', code: value } : null
   if (value && typeof value === 'object' && 'code' in value) {
-    const answer = value as CodingAnswer
-    return typeof answer.code === 'string' && answer.code.trim() ? { language: String(answer.language ?? ''), code: answer.code } : null
+    const answer = value as Record<string, unknown>
+    if (typeof answer.code === 'string' && answer.code.trim()) {
+      return {
+        language: String(answer.language ?? ''),
+        code: answer.code,
+        passedCases: typeof answer.passedCases === 'number' ? answer.passedCases : undefined,
+        totalCases: typeof answer.totalCases === 'number' ? answer.totalCases : undefined,
+        marks: typeof answer.marks === 'number' ? answer.marks : undefined,
+      }
+    }
   }
   return null
 }
@@ -171,10 +185,11 @@ export function isAnswered(value: unknown) {
 
 /**
  * Scores an attempt. MCQ/TF are auto-graded (with optional negative marking);
- * coding problems use the marks the teacher entered, and count as pending until graded.
+ * coding problems are automatically graded based on passed test cases (100% for all passed,
+ * proportional for partial), with teacher manual overrides taking precedence.
  */
 export async function gradeAttempt(attempt: AttemptDoc, codingMarksDefault?: number) {
-  const questions = await Question.find({ _id: { $in: attempt.questions } }).select('type correctIndex points').lean()
+  const questions = await Question.find({ _id: { $in: attempt.questions } }).select('type correctIndex points samples').lean()
   const byId = new Map(questions.map(q => [String(q._id), q]))
   const marksByQuestion = new Map(attempt.codingMarks.map(mark => [String(mark.question), mark.marks ?? 0]))
   const defaultPoints = codingMarksDefault ?? 10
@@ -192,9 +207,46 @@ export async function gradeAttempt(attempt: AttemptDoc, codingMarksDefault?: num
     if (!question) return
     const answer = attempt.answers[index]
     if (question.type === 'coding') {
-      maxScore += question.points ?? defaultPoints
-      if (marksByQuestion.has(String(id))) codingScore += marksByQuestion.get(String(id))!
-      else if (codingAnswer(answer)) codingPending++
+      const qPoints = question.points ?? defaultPoints
+      maxScore += qPoints
+      if (marksByQuestion.has(String(id))) {
+        // Teacher manual grading takes precedence
+        codingScore += marksByQuestion.get(String(id))!
+      } else {
+        const ca = codingAnswer(answer)
+        if (ca) {
+          if (typeof ca.marks === 'number') {
+            // Evaluated test cases (100% if all passed, proportional if partial)
+            codingScore += ca.marks
+            const existing = attempt.codingMarks.find(m => String(m.question) === String(id))
+            const feedbackText = ca.passedCases != null && ca.totalCases != null
+              ? (ca.passedCases === ca.totalCases ? `All ${ca.totalCases} test cases passed (100%)` : `${ca.passedCases}/${ca.totalCases} test cases passed (${Math.round((ca.passedCases / ca.totalCases) * 100)}%)`)
+              : 'Auto-graded from test cases'
+            if (existing) {
+              existing.marks = ca.marks
+              if (!existing.feedback) existing.feedback = feedbackText
+            } else {
+              attempt.codingMarks.push({ question: id, marks: ca.marks, feedback: feedbackText })
+            }
+          } else if (typeof ca.passedCases === 'number' && typeof ca.totalCases === 'number' && ca.totalCases > 0) {
+            const allPassed = ca.passedCases === ca.totalCases
+            const autoMarks = allPassed ? qPoints : round((ca.passedCases / ca.totalCases) * qPoints)
+            codingScore += autoMarks
+            const existing = attempt.codingMarks.find(m => String(m.question) === String(id))
+            const feedbackText = allPassed ? `All ${ca.totalCases} test cases passed (100%)` : `${ca.passedCases}/${ca.totalCases} test cases passed (${Math.round((ca.passedCases / ca.totalCases) * 100)}%)`
+            if (existing) {
+              existing.marks = autoMarks
+              if (!existing.feedback) existing.feedback = feedbackText
+            } else {
+              attempt.codingMarks.push({ question: id, marks: autoMarks, feedback: feedbackText })
+            }
+          } else if (!question.samples || question.samples.length === 0) {
+            codingPending++
+          } else {
+            codingPending++
+          }
+        }
+      }
     } else {
       maxScore += markAt(index)
       if (typeof answer !== 'number') return
@@ -238,8 +290,15 @@ export function isAcceptingAnswers(attempt: AttemptDoc) {
 }
 
 /** Whether a student may see their score yet, per the room's result setting. */
-export function resultsVisible(room: { showResults?: string | null; status?: string | null }, attempt: { status: string }) {
+export function resultsVisible(
+  room: { showResults?: string | null; status?: string | null },
+  attempt: { status: string; autoSubmitted?: boolean; autoSubmitReason?: string }
+) {
   if (attempt.status !== 'submitted') return false
+  // If the student was suspended/auto-submitted due to violations or terminated by faculty, do not show results
+  if (attempt.autoSubmitted && (attempt.autoSubmitReason === 'violations' || attempt.autoSubmitReason === 'faculty')) {
+    return false
+  }
   if (room.showResults === 'after_submit') return true
   if (room.showResults === 'never') return false
   return room.status === 'closed'
