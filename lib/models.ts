@@ -14,7 +14,7 @@ const teacherSchema = new Schema(
   { timestamps: true },
 )
 
-export const YEARS = ['FY', 'SY', 'TY', 'B.Tech', 'LY'] as const
+export const YEARS = ['FY', 'SY', 'TY', 'B.Tech'] as const
 export const YEAR_LABELS: Record<string, string> = { FY: 'First Year (FY)', SY: 'Second Year (SY)', TY: 'Third Year (TY)', 'B.Tech': 'B.Tech', LY: 'B.Tech' }
 export const BRANCHES: Record<string, string> = {
   CSE: 'COMPUTER SCIENCE & ENGINEERING (B.Tech)',
@@ -25,6 +25,17 @@ export const BRANCHES: Record<string, string> = {
   CIVIL: 'Civil Engineering (B.Tech)',
   EE: 'Electrical Engineering (B.Tech)',
 }
+
+export const DEPARTMENTS = [
+  'Computer Science & Engineering',
+  'Artificial Intelligence & Machine Learning',
+  'Information Technology',
+  'Electronics & Telecommunication Engineering',
+  'Mechanical Engineering',
+  'Civil Engineering',
+  'Electrical Engineering',
+  'Basic Sciences & Humanities',
+] as const
 
 const classroomSchema = new Schema(
   {

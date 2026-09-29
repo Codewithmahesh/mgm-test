@@ -59,6 +59,12 @@ export function CodeEditor({ value, onChange, language, readOnly = false, height
         smoothScrolling: true,
         contextmenu: !readOnly,
         wordWrap: readOnly ? 'on' : 'off',
+        bracketPairColorization: { enabled: true },
+        autoClosingBrackets: 'always',
+        autoClosingQuotes: 'always',
+        matchBrackets: 'always',
+        formatOnPaste: true,
+        suggestOnTriggerCharacters: true,
       }}
     />
   )

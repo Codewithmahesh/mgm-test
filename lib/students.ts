@@ -49,9 +49,12 @@ export function serializeStudent(student: {
 
 /** Finds or creates the classroom for a year/branch/division combination. */
 export async function classroomFor(year: string, branch: string, division: string) {
+  const normalizedYear = year === 'LY' ? 'B.Tech' : year.trim()
+  const normalizedBranch = branch.toUpperCase().trim()
+  const normalizedDivision = division.toUpperCase().trim()
   return Classroom.findOneAndUpdate(
-    { class: year, branch, division },
-    { $setOnInsert: { class: year, branch, division, branchName: BRANCHES[branch] ?? branch } },
+    { class: normalizedYear, branch: normalizedBranch, division: normalizedDivision },
+    { $setOnInsert: { class: normalizedYear, branch: normalizedBranch, division: normalizedDivision, branchName: BRANCHES[normalizedBranch] ?? normalizedBranch } },
     { upsert: true, returnDocument: 'after' },
   ).lean()
 }

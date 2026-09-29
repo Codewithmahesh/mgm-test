@@ -204,3 +204,14 @@ export const BRANCH_OPTIONS = [
   { value: 'CIVIL', label: 'Civil Engineering' },
   { value: 'EE', label: 'Electrical Engineering' },
 ]
+
+export const DEPARTMENT_OPTIONS = [
+  { value: 'Computer Science & Engineering', label: 'Computer Science & Engineering' },
+  { value: 'Artificial Intelligence & Machine Learning', label: 'Artificial Intelligence & Machine Learning' },
+  { value: 'Information Technology', label: 'Information Technology' },
+  { value: 'Electronics & Telecommunication Engineering', label: 'Electronics & Telecommunication Engineering' },
+  { value: 'Mechanical Engineering', label: 'Mechanical Engineering' },
+  { value: 'Civil Engineering', label: 'Civil Engineering' },
+  { value: 'Electrical Engineering', label: 'Electrical Engineering' },
+  { value: 'Basic Sciences & Humanities', label: 'Basic Sciences & Humanities' },
+]

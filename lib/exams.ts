@@ -4,6 +4,7 @@ import type { Types } from 'mongoose'
 import { Attempt, ExamRoom, Question } from './models'
 import { BLOOM_LEVELS, type BloomLevel } from './bloom'
 import { activeSets, setPool } from './paper-rules'
+import { evaluateTestCases } from './compiler'
 
 type AttemptDoc = NonNullable<Awaited<ReturnType<typeof Attempt.findOne>>>
 type RoomLike = {
@@ -202,9 +203,11 @@ export async function gradeAttempt(attempt: AttemptDoc, codingMarksDefault?: num
   let codingScore = 0
   let codingPending = 0
   let maxScore = 0
-  attempt.questions.forEach((id, index) => {
+
+  for (let index = 0; index < attempt.questions.length; index++) {
+    const id = attempt.questions[index]
     const question = byId.get(String(id))
-    if (!question) return
+    if (!question) continue
     const answer = attempt.answers[index]
     if (question.type === 'coding') {
       const qPoints = question.points ?? defaultPoints
@@ -214,7 +217,7 @@ export async function gradeAttempt(attempt: AttemptDoc, codingMarksDefault?: num
         codingScore += marksByQuestion.get(String(id))!
       } else {
         const ca = codingAnswer(answer)
-        if (ca) {
+        if (ca && ca.code && ca.code.trim()) {
           if (typeof ca.marks === 'number') {
             // Evaluated test cases (100% if all passed, proportional if partial)
             codingScore += ca.marks
@@ -240,8 +243,40 @@ export async function gradeAttempt(attempt: AttemptDoc, codingMarksDefault?: num
             } else {
               attempt.codingMarks.push({ question: id, marks: autoMarks, feedback: feedbackText })
             }
-          } else if (!question.samples || question.samples.length === 0) {
-            codingPending++
+          } else if (question.samples && question.samples.length > 0) {
+            // Server-side fallback auto-grading against sample test cases
+            try {
+              const testCases = question.samples.map((s: { input?: string; output?: string }) => ({ input: s.input ?? '', expectedOutput: s.output ?? '' }))
+              const evalRes = await evaluateTestCases(ca.language || 'cpp', ca.code, testCases)
+              const totalCount = evalRes.testResults?.length ?? 0
+              const passedCount = evalRes.testResults?.filter(r => r.passed).length ?? 0
+              const allPassed = passedCount === totalCount && totalCount > 0
+              const autoMarks = allPassed ? qPoints : (totalCount > 0 ? round((passedCount / totalCount) * qPoints) : 0)
+              codingScore += autoMarks
+
+              const existing = attempt.codingMarks.find(m => String(m.question) === String(id))
+              const feedbackText = totalCount > 0
+                ? (allPassed ? `All ${totalCount} test cases passed (100%)` : `${passedCount}/${totalCount} test cases passed (${Math.round((passedCount / totalCount) * 100)}%)`)
+                : 'Evaluated'
+              if (existing) {
+                existing.marks = autoMarks
+                if (!existing.feedback) existing.feedback = feedbackText
+              } else {
+                attempt.codingMarks.push({ question: id, marks: autoMarks, feedback: feedbackText })
+              }
+              if (typeof attempt.answers[index] === 'object' && attempt.answers[index] !== null) {
+                attempt.answers[index] = {
+                  ...(attempt.answers[index] as object),
+                  passedCases: passedCount,
+                  totalCases: totalCount,
+                  marks: autoMarks,
+                }
+                attempt.markModified('answers')
+              }
+            } catch (err) {
+              console.error('Server auto-grading error for question', id, err)
+              codingPending++
+            }
           } else {
             codingPending++
           }
@@ -249,11 +284,11 @@ export async function gradeAttempt(attempt: AttemptDoc, codingMarksDefault?: num
       }
     } else {
       maxScore += markAt(index)
-      if (typeof answer !== 'number') return
+      if (typeof answer !== 'number') continue
       if (answer === question.correctIndex) { correct++; mcqScore += markAt(index) }
       else wrong++
     }
-  })
+  }
   attempt.correctCount = correct
   attempt.wrongCount = wrong
   attempt.mcqScore = round(mcqScore - wrong * (attempt.negativeMarks ?? 0))

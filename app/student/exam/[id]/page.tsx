@@ -12,6 +12,7 @@ import { Spinner } from '@/components/ui/card'
 import { Select } from '@/components/ui/form'
 import { Dialog, useFeedback } from '@/components/ui/overlay'
 import { ApiError, LANGUAGE_OPTIONS, STARTER_CODE, api, clock, errorMessage, letter, type Sample } from '@/lib/api'
+import { cleanCompilerError } from '@/lib/compiler'
 import { INTEGRITY_EVENTS, type IntegrityEvent } from '@/lib/integrity'
 import { cn } from '@/lib/utils'
 
@@ -535,6 +536,64 @@ function McqView({ question, total, selected, marks, negative, flagged, onSelect
   )
 }
 
+function CompilerErrorCard({ error, onCopy }: { error: string; onCopy?: () => void }) {
+  const [copied, setCopied] = useState(false)
+  const { cleaned, line, tip } = useMemo(() => cleanCompilerError(error), [error])
+
+  return (
+    <div className="rounded-lg border border-red-500/40 bg-red-950/20 p-4 text-xs space-y-3 shadow-md">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-red-500/20 pb-2.5">
+        <div className="flex items-center gap-2">
+          <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-400">
+            <AlertTriangle className="size-3.5" />
+          </div>
+          <div>
+            <div className="font-semibold text-red-300 text-sm">Compilation / Syntax Error</div>
+            <div className="text-[11px] text-red-400/80">Code execution failed. Please fix the error indicated below.</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {line != null && (
+            <span className="rounded bg-amber-500/20 px-2 py-0.5 font-mono text-[11px] font-semibold text-amber-300 border border-amber-500/30">
+              Line {line}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard?.writeText(error)
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1500)
+              onCopy?.()
+            }}
+            className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1 text-[11px] text-white/80 hover:bg-white/20 transition-colors"
+          >
+            {copied ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
+            {copied ? 'Copied' : 'Copy Error'}
+          </button>
+        </div>
+      </div>
+
+      {/* Main Error Diagnostics Console */}
+      <div>
+        <div className="text-[11px] font-semibold text-red-300 uppercase tracking-wide mb-1">Compiler Diagnostics</div>
+        <pre className="max-h-72 min-h-24 overflow-auto rounded border border-red-500/30 bg-[#141414] p-3 font-mono text-xs text-red-200 whitespace-pre-wrap leading-relaxed">
+          {cleaned || error}
+        </pre>
+      </div>
+
+      {/* Friendly Beginner Hint */}
+      {tip && (
+        <div className="flex items-start gap-2.5 rounded border border-amber-500/30 bg-amber-500/10 p-2.5 text-amber-200 text-xs">
+          <span className="text-sm">💡</span>
+          <div className="leading-5 font-medium">{tip}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNext, position }: {
   question: CodingQuestion; answer: CodeAnswer | null; onChange: (value: CodeAnswer) => void; flagged: boolean; onFlag: () => void; onPrev?: () => void; onNext?: () => void; position: string
 }) {
@@ -557,6 +616,7 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
   // Result States
   const [testResults, setTestResults] = useState<Array<{ testCase: number; passed: boolean; input: string; expected: string; actual: string }>>([])
   const [overallPassed, setOverallPassed] = useState<boolean | null>(null)
+  const [compileError, setCompileError] = useState<string | null>(null)
   const [terminalOutput, setTerminalOutput] = useState<{ stdout: string; stderr: string; time?: string | null; memory?: string | null } | null>(null)
   const [execError, setExecError] = useState<string | null>(null)
 
@@ -611,10 +671,10 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
   const { confirm, toast } = useFeedback()
 
   function changeLanguage(next: string) {
-    const untouched = !code.trim() || code === template(language)
     setLanguage(next)
-    if (untouched) setCode(template(next))
-    if (answer) onChange({ language: next, code: untouched ? template(next) : code })
+    const newCode = template(next)
+    setCode(newCode)
+    onChange({ language: next, code: newCode })
   }
 
   function edit(next: string) {
@@ -633,6 +693,7 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
     if (isRunning || isSubmitting) return
     setIsRunning(true)
     setExecError(null)
+    setCompileError(null)
     setConsoleOpen(true)
 
     try {
@@ -651,6 +712,11 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
         if (!res.ok) {
           setExecError(data.error || `Execution error (${res.status})`)
           setActiveTab('terminal')
+          return
+        }
+        if (data.compileError) {
+          setCompileError(data.compileError)
+          setActiveTab('results')
           return
         }
         if (data.run) {
@@ -678,6 +744,13 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
           setActiveTab('results')
           return
         }
+        if (data.compileError) {
+          setCompileError(data.compileError)
+          setTestResults([])
+          setOverallPassed(false)
+          setActiveTab('results')
+          return
+        }
         if (data.testResults) {
           setTestResults(data.testResults)
           setOverallPassed(data.overallPassed ?? false)
@@ -700,6 +773,7 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
     if (isRunning || isSubmitting) return
     setIsRunning(true)
     setExecError(null)
+    setCompileError(null)
     setConsoleOpen(true)
 
     try {
@@ -724,6 +798,12 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
         return
       }
 
+      if (data.compileError) {
+        setCompileError(data.compileError)
+        setActiveTab('results')
+        return
+      }
+
       if (data.run) {
         setTerminalOutput(data.run)
         setActiveTab('terminal')
@@ -741,6 +821,7 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
     if (isRunning || isSubmitting) return
     setIsSubmitting(true)
     setExecError(null)
+    setCompileError(null)
     setConsoleOpen(true)
 
     try {
@@ -765,6 +846,19 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
       if (!res.ok) {
         setExecError(data.error || `Submission error (${res.status})`)
         setActiveTab('results')
+        return
+      }
+
+      if (data.compileError) {
+        setCompileError(data.compileError)
+        setTestResults([])
+        setOverallPassed(false)
+        setActiveTab('results')
+        toast('Compilation Error: Fix syntax/compiler errors and try submitting again.', 'error')
+        // Save code with 0 marks
+        onChange({ language, code, passedCases: 0, totalCases: samples.length, marks: 0 })
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        setSubmittedAt(timeStr)
         return
       }
 
@@ -1009,20 +1103,6 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
 
           {/* Right toolbar action buttons */}
           <div className="flex items-center gap-2">
-            {/* Custom Input Toggle */}
-            <label className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-white/70 hover:text-white cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={customInputEnabled}
-                onChange={e => {
-                  setCustomInputEnabled(e.target.checked)
-                  if (e.target.checked) setActiveTab('testcases')
-                }}
-                className="size-3.5 rounded accent-primary cursor-pointer"
-              />
-              <span className="hidden md:inline">Custom Input</span>
-            </label>
-
             {/* Run Code Button */}
             <button
               onClick={() => void handleRun()}
@@ -1057,13 +1137,30 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
           </div>
         </div>
 
+        {/* First-time Student Friendly Guidance Banner */}
+        <div className="flex items-center justify-between border-b border-black/30 bg-[#252528] px-3.5 py-1.5 text-xs text-white/70 select-none">
+          <div className="flex items-center gap-2 overflow-x-auto text-[11.5px]">
+            <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary font-bold text-[10px]">1</span>
+            <span>Write code</span>
+            <span className="text-white/30">&rarr;</span>
+            <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-white/10 text-white font-bold text-[10px]">2</span>
+            <span>Click <strong className="text-white">Run Code</strong> to test</span>
+            <span className="text-white/30">&rarr;</span>
+            <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">3</span>
+            <span>Click <strong className="text-emerald-400">Submit Code</strong> to score marks</span>
+          </div>
+          <span className="hidden lg:inline text-[11px] text-white/40 font-mono">
+            Ctrl+Enter: Run · Ctrl+Shift+Enter: Submit
+          </span>
+        </div>
+
         {/* Monaco Editor Container */}
         <div className="relative min-h-0 flex-1 overflow-hidden">
           <CodeEditor value={code} onChange={edit} language={language} />
         </div>
 
         {/* ── Collapsible Bottom Console Drawer ────────────────────────────── */}
-        <div className={cn('flex flex-col border-t border-black/40 bg-[#1e1e1e] transition-all', consoleOpen ? 'h-64' : 'h-9')}>
+        <div className={cn('flex flex-col border-t border-black/40 bg-[#1e1e1e] transition-all', consoleOpen ? 'h-80' : 'h-9')}>
           {/* Console Header Tabs */}
           <div className="flex items-center justify-between border-b border-black/30 bg-[#252526] px-3">
             <div className="flex items-center gap-1">
@@ -1091,11 +1188,15 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
               >
                 <CheckCircle2 className="size-3.5" />
                 <span>Test Results</span>
-                {overallPassed !== null && (
-                  <span className={cn('ml-1 rounded px-1.5 py-0.2 text-[10px] font-bold', overallPassed ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400')}>
+                {compileError ? (
+                  <span className="ml-1 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold text-red-400">
+                    ERROR
+                  </span>
+                ) : overallPassed !== null ? (
+                  <span className={cn('ml-1 rounded px-1.5 py-0.5 text-[10px] font-bold', overallPassed ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400')}>
                     {overallPassed ? 'PASSED' : 'FAILED'}
                   </span>
-                )}
+                ) : null}
               </button>
 
               <button
@@ -1112,13 +1213,29 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
               </button>
             </div>
 
-            <button
-              onClick={() => setConsoleOpen(!consoleOpen)}
-              className="rounded p-1 text-white/50 hover:bg-white/10 hover:text-white"
-              title={consoleOpen ? 'Collapse console' : 'Expand console'}
-            >
-              {consoleOpen ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Custom Input Toggle */}
+              <label className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-white/70 hover:text-white cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={customInputEnabled}
+                  onChange={e => {
+                    setCustomInputEnabled(e.target.checked)
+                    if (e.target.checked) { setActiveTab('testcases'); setConsoleOpen(true) }
+                  }}
+                  className="size-3.5 rounded accent-primary cursor-pointer"
+                />
+                <span>Custom Input</span>
+              </label>
+
+              <button
+                onClick={() => setConsoleOpen(!consoleOpen)}
+                className="rounded p-1 text-white/50 hover:bg-white/10 hover:text-white"
+                title={consoleOpen ? 'Collapse console' : 'Expand console'}
+              >
+                {consoleOpen ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+              </button>
+            </div>
           </div>
 
           {/* Console Content Area */}
@@ -1202,11 +1319,10 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
                       <Loader2 className="size-4 animate-spin text-primary" />
                       <span>Compiling and executing code in sandbox…</span>
                     </div>
+                  ) : compileError ? (
+                    <CompilerErrorCard error={compileError} />
                   ) : execError ? (
-                    <div className="rounded border border-red-500/30 bg-red-500/10 p-3 text-red-400">
-                      <div className="font-semibold">Execution Error</div>
-                      <pre className="mt-1 whitespace-pre-wrap text-xs">{execError}</pre>
-                    </div>
+                    <CompilerErrorCard error={execError} />
                   ) : testResults.length > 0 ? (
                     <div className="space-y-3">
                       {/* Summary Banner with Score & Percentage */}
@@ -1254,19 +1370,19 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
                         <div className="grid gap-3 sm:grid-cols-3">
                           <div>
                             <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wide mb-1">Input</div>
-                            <pre className="max-h-24 overflow-x-auto rounded border border-white/10 bg-[#141414] p-2 text-xs text-white">
+                            <pre className="max-h-56 min-h-20 overflow-auto rounded border border-white/10 bg-[#141414] p-2.5 text-xs text-white font-mono whitespace-pre-wrap leading-relaxed">
                               {testResults[selectedCaseIdx].input || '(empty)'}
                             </pre>
                           </div>
                           <div>
                             <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wide mb-1">Expected Output</div>
-                            <pre className="max-h-24 overflow-x-auto rounded border border-white/10 bg-[#141414] p-2 text-xs text-emerald-300">
+                            <pre className="max-h-56 min-h-20 overflow-auto rounded border border-white/10 bg-[#141414] p-2.5 text-xs text-emerald-300 font-mono whitespace-pre-wrap leading-relaxed">
                               {testResults[selectedCaseIdx].expected || '(empty)'}
                             </pre>
                           </div>
                           <div>
                             <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wide mb-1">Your Output</div>
-                            <pre className={cn('max-h-24 overflow-x-auto rounded border p-2 text-xs', testResults[selectedCaseIdx].passed ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300' : 'border-red-500/30 bg-red-500/5 text-red-300')}>
+                            <pre className={cn('max-h-56 min-h-20 overflow-auto rounded border p-2.5 text-xs font-mono whitespace-pre-wrap leading-relaxed', testResults[selectedCaseIdx].passed ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300' : 'border-red-500/30 bg-red-500/5 text-red-300')}>
                               {testResults[selectedCaseIdx].actual || '(empty)'}
                             </pre>
                           </div>
@@ -1290,36 +1406,33 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
                       <span>Executing in sandbox…</span>
                     </div>
                   ) : execError ? (
-                    <pre className="whitespace-pre-wrap text-red-400 bg-red-950/20 p-2.5 rounded border border-red-500/20">{execError}</pre>
+                    <CompilerErrorCard error={execError} />
                   ) : terminalOutput ? (
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       <div className="flex items-center justify-between border-b border-white/10 pb-2 text-xs text-white/50">
                         <div className="flex items-center gap-3">
                           {terminalOutput.time && <span>Runtime: <strong className="text-white">{terminalOutput.time}</strong></span>}
                           {terminalOutput.memory && <span>Memory: <strong className="text-white">{terminalOutput.memory}</strong></span>}
                         </div>
-                        <span className="text-emerald-400 font-medium text-[11px]">Execution Complete</span>
+                        <span className="text-emerald-400 font-medium text-[11px]">Execution Finished</span>
                       </div>
 
                       {/* Standard Output */}
                       <div>
-                        <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wide mb-1">Program Output (stdout)</div>
+                        <div className="text-[11px] font-semibold text-white/50 uppercase tracking-wide mb-1">Standard Output (stdout)</div>
                         {terminalOutput.stdout ? (
-                          <pre className="max-h-36 overflow-x-auto rounded border border-white/10 bg-[#141414] p-2.5 text-xs text-emerald-300 whitespace-pre-wrap">
+                          <pre className="max-h-60 overflow-auto rounded border border-white/10 bg-[#141414] p-3 text-xs text-emerald-300 whitespace-pre-wrap font-mono leading-relaxed">
                             {terminalOutput.stdout}
                           </pre>
                         ) : (
-                          <p className="text-xs italic text-white/40">No output printed.</p>
+                          <p className="text-xs italic text-white/40">No output printed to stdout.</p>
                         )}
                       </div>
 
                       {/* Standard Error (if any) */}
                       {terminalOutput.stderr && (
                         <div>
-                          <div className="text-[11px] font-semibold text-red-400 uppercase tracking-wide mb-1">Errors & Diagnostics (stderr)</div>
-                          <pre className="max-h-36 overflow-x-auto rounded border border-red-500/30 bg-red-950/20 p-2.5 text-xs text-red-300 whitespace-pre-wrap">
-                            {terminalOutput.stderr}
-                          </pre>
+                          <CompilerErrorCard error={terminalOutput.stderr} />
                         </div>
                       )}
                     </div>
