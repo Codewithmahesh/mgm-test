@@ -9,6 +9,7 @@ import { Alert, Field, Input, Select, Textarea } from '@/components/ui/form'
 import { Dialog, useFeedback } from '@/components/ui/overlay'
 import { api, errorMessage, formatDate, type Classroom, type StudentRow } from '@/lib/api'
 import { useLatestRequest } from '@/lib/use-latest'
+import { cn } from '@/lib/utils'
 
 const LIMIT = 50
 
@@ -29,6 +30,8 @@ function Students() {
   const [page, setPage] = useState(1)
   const [addOpen, setAddOpen] = useState(search.get('add') === '1')
   const [detail, setDetail] = useState<Detail | null>(null)
+  // The student whose details are loading.
+  const [opening, setOpening] = useState<string | null>(null)
   const latest = useLatestRequest()
 
   const load = useCallback(() => {
@@ -54,7 +57,8 @@ function Students() {
     loadClasses()
   }
   async function open(student: StudentRow) {
-    try { setDetail(await api<Detail>(`/api/students/${student.id}`)) } catch (err) { toast(errorMessage(err), 'error') }
+    setOpening(student.id)
+    try { setDetail(await api<Detail>(`/api/students/${student.id}`)) } catch (err) { toast(errorMessage(err), 'error') } finally { setOpening(null) }
   }
 
   const allTotal = classrooms.reduce((sum, c) => sum + c.students, 0) + unassigned
@@ -83,8 +87,8 @@ function Students() {
               <thead><tr><th>Student</th><th>Roll no.</th><th>Class</th><th>PRN</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {rows.map(s => (
-                  <tr key={s.id} className="cursor-pointer" onClick={() => open(s)}>
-                    <td><div className="font-medium">{s.name || <span className="text-muted-foreground">Name not set</span>}</div><div className="text-xs text-muted-foreground">{s.email}</div></td>
+                  <tr key={s.id} className={cn('cursor-pointer', opening === s.id && 'bg-muted/60')} aria-busy={opening === s.id || undefined} onClick={() => { if (!opening) open(s) }}>
+                    <td><div className="flex items-center gap-2 font-medium">{s.name || <span className="text-muted-foreground">Name not set</span>}{opening === s.id && <Spinner className="size-3.5" />}</div><div className="text-xs text-muted-foreground">{s.email}</div></td>
                     <td className="tabular-nums">{s.rollNumber || '—'}</td>
                     <td>{s.classLabel || <span className="text-muted-foreground">—</span>}</td>
                     <td className="font-mono text-xs text-muted-foreground">{s.prn || '—'}</td>
@@ -156,7 +160,7 @@ function AddStudentsDialog({ open, onClose, domains, onAdded }: { open: boolean;
 
   return (
     <Dialog open={open} onClose={onClose} size="lg" title="Add students" description="Paste college emails, or upload a CSV / text file. Students then activate their own accounts with an OTP."
-      footer={result ? <Button onClick={onClose}>Done</Button> : <><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={submit} disabled={!count || saving}>{saving ? 'Adding…' : `Add ${count || ''} student${count === 1 ? '' : 's'}`}</Button></>}>
+      footer={result ? <Button onClick={onClose}>Done</Button> : <><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={submit} disabled={!count} loading={saving}>{saving ? 'Adding…' : `Add ${count || ''} student${count === 1 ? '' : 's'}`}</Button></>}>
       {result ? (
         <div className="flex flex-col gap-3">
           <Alert tone="success">{result.added} added{result.alreadyListed ? ` · ${result.alreadyListed} were already on the list` : ''}.</Alert>

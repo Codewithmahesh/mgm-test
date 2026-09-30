@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useGibberishCheck } from '@/components/gibberish-check'
 import { Alert, Field, Input, Select, Textarea } from '@/components/ui/form'
 import { Dialog } from '@/components/ui/overlay'
 import { QuestionImageUpload } from '@/components/question-attachment'
@@ -36,6 +37,7 @@ export function QuestionEditor({ open, initial, onClose, onSave, title }: { open
   const [q, setQ] = useState<DraftQuestion>(initial ?? blankQuestion())
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const checkText = useGibberishCheck()
   useEffect(() => { if (open) { setQ(initial ?? blankQuestion()); setError('') } }, [open, initial])
 
   const set = <K extends keyof DraftQuestion>(key: K, value: DraftQuestion[K]) => setQ(current => ({ ...current, [key]: value }))
@@ -45,13 +47,19 @@ export function QuestionEditor({ open, initial, onClose, onSave, title }: { open
   async function save() {
     const problem = validateQuestion(q)
     if (problem) return setError(problem)
+    if (!(await checkText([
+      ...(q.type === 'coding' ? [{ label: 'Title', value: q.title }] : []),
+      { label: q.type === 'coding' ? 'Statement' : 'Question', value: q.text },
+      ...(q.type === 'mcq' ? [{ label: 'Options', value: q.options.join(' ') }] : []),
+      { label: 'Topic', value: q.topic },
+    ]))) return
     setSaving(true)
     try { await onSave({ ...q, options: q.options.map(o => o.trim()) }); onClose() } catch (err) { setError(err instanceof Error ? err.message : 'Could not save.') } finally { setSaving(false) }
   }
 
   return (
     <Dialog open={open} onClose={onClose} size="lg" title={title ?? (initial ? 'Edit question' : 'New question')}
-      footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save question'}</Button></>}>
+      footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={save} loading={saving}>{saving ? 'Saving…' : 'Save question'}</Button></>}>
       <div className="flex flex-col gap-4">
         {error && <Alert>{error}</Alert>}
         <div className="inline-flex self-start rounded-md border border-border bg-muted p-0.5">

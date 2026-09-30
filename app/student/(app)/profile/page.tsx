@@ -7,12 +7,14 @@ import { Button } from '@/components/ui/button'
 import { Card, CardHeader, PageHeader } from '@/components/ui/card'
 import { Alert, Field, Input, Select } from '@/components/ui/form'
 import { useFeedback } from '@/components/ui/overlay'
+import { useGibberishCheck } from '@/components/gibberish-check'
 import { BRANCH_OPTIONS, Classroom, YEAR_OPTIONS, api, errorMessage } from '@/lib/api'
 
 export default function ProfilePage() {
   const { student, refresh } = useStudent()
   const router = useRouter()
   const { toast } = useFeedback()
+  const checkText = useGibberishCheck()
   const [form, setForm] = useState({ name: '', classroomId: '', year: '', branch: '', division: '', rollNumber: '', prn: '' })
   const [classrooms, setClassrooms] = useState<Classroom[]>([])
   const [customClass, setCustomClass] = useState(false)
@@ -62,6 +64,7 @@ export default function ProfilePage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
+    if (!(await checkText([{ label: 'Full name', value: form.name }]))) return
     setSaving(true)
     setError('')
     try {
@@ -133,7 +136,7 @@ export default function ProfilePage() {
             <Field label="PRN" htmlFor="prn" hint="Permanent registration number, if you have one." className={customClass ? '' : 'sm:col-span-2'}><Input id="prn" value={form.prn} onChange={set('prn')} className="font-mono" /></Field>
           </div>
           <div className="flex justify-end border-t border-border px-5 py-3">
-            <Button type="submit" disabled={saving || !student}>{saving ? 'Saving…' : firstTime ? 'Save and continue' : 'Save changes'}</Button>
+            <Button type="submit" disabled={!student} loading={saving}>{saving ? 'Saving…' : firstTime ? 'Save and continue' : 'Save changes'}</Button>
           </div>
         </Card>
       </form>

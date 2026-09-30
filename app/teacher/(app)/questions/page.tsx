@@ -75,6 +75,9 @@ function QuestionBank() {
     setOpen(set => { const next = new Set(set); if (next.has(key)) next.delete(key); else { next.add(key); fetchGroup(key).catch(err => toast(errorMessage(err), 'error')) } return next })
   }
 
+  // The exam group whose PDF is being built.
+  const [downloading, setDownloading] = useState<string | null>(null)
+
   async function refresh(key?: string) {
     await loadGroups()
     if (key) await fetchGroup(key, true)
@@ -109,12 +112,13 @@ function QuestionBank() {
   }
 
   async function download(group: Group, withAnswers: boolean) {
+    setDownloading(group.key)
     try {
       const list = await fetchGroup(group.key)
       if (!list.length) throw new Error('There are no questions to export.')
       await downloadPaperPdf(metaOf(group), list, { withAnswers })
       toast(withAnswers ? 'Paper with answers downloaded.' : 'Question paper downloaded.')
-    } catch (err) { toast(errorMessage(err, 'Could not create the PDF.'), 'error') }
+    } catch (err) { toast(errorMessage(err, 'Could not create the PDF.'), 'error') } finally { setDownloading(null) }
   }
 
   const visible = useMemo(() => (groups ?? []).filter(g => {
@@ -175,7 +179,7 @@ function QuestionBank() {
                   </button>
                   <div className="flex shrink-0 items-center gap-1.5 sm:border-l sm:border-border sm:pl-4">
                     <Button variant="outline" size="sm" onClick={() => { setViewing(group); fetchGroup(group.key).catch(err => toast(errorMessage(err), 'error')) }}><Eye />View</Button>
-                    <Menu trigger={props => <Button variant="outline" size="sm" {...props}><Download />PDF<ChevronDown className="size-3.5 opacity-60" /></Button>}>
+                    <Menu trigger={props => <Button variant="outline" size="sm" loading={downloading === group.key} {...props}><Download />PDF<ChevronDown className="size-3.5 opacity-60" /></Button>}>
                       {close => <>
                         <MenuItem icon={FileText} onClick={() => { close(); download(group, false) }}>Question paper</MenuItem>
                         <MenuItem icon={ListChecks} onClick={() => { close(); download(group, true) }}>Paper with answer key</MenuItem>

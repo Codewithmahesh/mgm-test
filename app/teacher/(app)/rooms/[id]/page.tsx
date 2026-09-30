@@ -32,6 +32,8 @@ function RoomView({ id }: { id: string }) {
   const [tab, setTab] = useState<Tab>(() => (TABS.includes(search.get('tab') as Tab) ? (search.get('tab') as Tab) : 'overview'))
   const [extendOpen, setExtendOpen] = useState(false)
   const [extendBy, setExtendBy] = useState('10')
+  // The status change or extension in progress, for the button spinners.
+  const [busy, setBusy] = useState<Room['status'] | 'extend' | null>(null)
 
   const latest = useLatestRequest()
   const load = useCallback(() => latest(api<{ room: Room; questions: BankQuestion[] }>(`/api/rooms/${id}`), d => { setRoom(d.room); setQuestions(d.questions) }).catch(err => setError(errorMessage(err))), [id, latest])
@@ -61,19 +63,21 @@ function RoomView({ id }: { id: string }) {
       cancelLabel: 'Keep the schedule',
       tone: 'danger',
     }))) return
+    setBusy(status)
     try {
       const data = await api<{ room: Room }>(`/api/rooms/${id}`, { method: 'PATCH', body: early ? { status, startsAt: new Date().toISOString() } : { status } })
       setRoom(data.room)
       toast(status === 'open' ? `Room is live. Students can join with ${data.room.code}.` : status === 'closed' ? 'Exam ended. All papers are submitted.' : 'Room moved back to draft.')
-    } catch (err) { toast(errorMessage(err), 'error') }
+    } catch (err) { toast(errorMessage(err), 'error') } finally { setBusy(null) }
   }
 
   async function extend() {
+    setBusy('extend')
     try {
       await api(`/api/rooms/${id}`, { method: 'PATCH', body: { extendMinutes: Number(extendBy) } })
       toast(`Added ${extendBy} minutes for everyone still writing.`)
       setExtendOpen(false)
-    } catch (err) { toast(errorMessage(err), 'error') }
+    } catch (err) { toast(errorMessage(err), 'error') } finally { setBusy(null) }
   }
 
   if (error) return <Alert>{error}</Alert>
@@ -97,14 +101,14 @@ function RoomView({ id }: { id: string }) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {room.status === 'draft' && <Button onClick={() => setStatus('open')}><Play />Open room</Button>}
+            {room.status === 'draft' && <Button loading={busy === 'open'} disabled={busy !== null} onClick={() => setStatus('open')}><Play />{busy === 'open' ? 'Opening…' : 'Open room'}</Button>}
             {room.status === 'open' && <>
               <Button variant="outline" onClick={() => setExtendOpen(true)}><Clock3 />Extend time</Button>
-              <Button variant="destructive" onClick={() => setStatus('closed')}><Square />End exam</Button>
+              <Button variant="destructive" loading={busy === 'closed'} disabled={busy !== null} onClick={() => setStatus('closed')}><Square />{busy === 'closed' ? 'Ending…' : 'End exam'}</Button>
             </>}
             {room.status === 'closed' && <>
               <Button variant="outline" onClick={() => downloadFile(`/api/rooms/${id}/attempts?format=csv`)}><Download />Export results</Button>
-              <Button variant="outline" onClick={() => setStatus('open')}><RotateCcw />Reopen</Button>
+              <Button variant="outline" loading={busy === 'open'} disabled={busy !== null} onClick={() => setStatus('open')}><RotateCcw />{busy === 'open' ? 'Reopening…' : 'Reopen'}</Button>
             </>}
             <Menu trigger={props => <Button variant="outline" size="icon" aria-label="More actions" {...props}><MoreHorizontal /></Button>}>
               {close => <>
@@ -141,7 +145,7 @@ function RoomView({ id }: { id: string }) {
       {tab === 'settings' && <SettingsTab room={room} onSaved={next => { setRoom(next); load() }} onDeleted={() => router.push('/teacher/rooms')} />}
 
       <Dialog open={extendOpen} onClose={() => setExtendOpen(false)} size="sm" title="Extend time" description="Adds time for every student who is still writing."
-        footer={<><Button variant="outline" onClick={() => setExtendOpen(false)}>Cancel</Button><Button onClick={extend}>Add {extendBy} minutes</Button></>}>
+        footer={<><Button variant="outline" onClick={() => setExtendOpen(false)}>Cancel</Button><Button onClick={extend} loading={busy === 'extend'}>Add {extendBy} minutes</Button></>}>
         <Field label="Minutes to add"><Input type="number" min={1} max={180} value={extendBy} onChange={e => setExtendBy(e.target.value)} /></Field>
       </Dialog>
     </>

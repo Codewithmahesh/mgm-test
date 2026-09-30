@@ -35,6 +35,7 @@ export default function AttemptReviewPage({ params }: { params: Promise<{ id: st
   const [saving, setSaving] = useState(false)
   const [filter, setFilter] = useState<'all' | 'coding' | 'wrong'>('all')
   const [reopenOpen, setReopenOpen] = useState(false)
+  const [reopening, setReopening] = useState(false)
   const [reopenMinutes, setReopenMinutes] = useState('15')
 
   function apply(detail: Detail) {
@@ -56,11 +57,12 @@ export default function AttemptReviewPage({ params }: { params: Promise<{ id: st
   }
 
   async function reopen() {
+    setReopening(true)
     try {
       apply(await api<Detail>(`/api/rooms/${id}/attempts/${attemptId}`, { method: 'PATCH', body: { action: 'reopen', minutes: Number(reopenMinutes) } }))
       setReopenOpen(false)
       toast(`${data?.attempt.studentName} can continue for ${reopenMinutes} minutes. They should reopen the exam from their dashboard.`)
-    } catch (err) { toast(errorMessage(err), 'error') }
+    } catch (err) { toast(errorMessage(err), 'error') } finally { setReopening(false) }
   }
 
   if (error) return <Alert>{error}</Alert>
@@ -79,7 +81,7 @@ export default function AttemptReviewPage({ params }: { params: Promise<{ id: st
           </div>
           <div className="flex gap-2">
             {attempt.status === 'submitted' && data.room.status !== 'closed' && <Button variant="outline" onClick={() => setReopenOpen(true)}><PlayCircle />Allow to continue</Button>}
-            {coding.length > 0 && <Button onClick={save} disabled={!dirty || saving}><Save />{saving ? 'Saving…' : 'Save marks'}</Button>}
+            {coding.length > 0 && <Button onClick={save} disabled={!dirty} loading={saving}><Save />{saving ? 'Saving…' : 'Save marks'}</Button>}
           </div>
         </div>
       </div>
@@ -153,7 +155,7 @@ export default function AttemptReviewPage({ params }: { params: Promise<{ id: st
 
       <Dialog open={reopenOpen} onClose={() => setReopenOpen(false)} size="sm" title={`Let ${attempt.studentName} continue?`}
         description="Use this after a wrongful auto-submit or a technical problem. The student keeps their answers and their flags, and gets a new end time."
-        footer={<><Button variant="outline" onClick={() => setReopenOpen(false)}>Cancel</Button><Button onClick={reopen}>Allow {reopenMinutes} more minutes</Button></>}>
+        footer={<><Button variant="outline" onClick={() => setReopenOpen(false)}>Cancel</Button><Button onClick={reopen} loading={reopening}>Allow {reopenMinutes} more minutes</Button></>}>
         <Field label="Minutes from now"><Input type="number" min={1} max={300} value={reopenMinutes} onChange={e => setReopenMinutes(e.target.value)} /></Field>
       </Dialog>
     </>

@@ -78,6 +78,7 @@ export async function generateBatch({ topic, description, sourceText, files, lev
       `Create exactly ${mcqCount} multiple-choice questions and exactly ${codingCount} coding problems.`,
       `Topic: ${topic || (description ? 'derived from instructions' : 'infer it from the source material')}.`,
       description ? `Faculty instructions / Specific description:\n"""\n${description}\n"""\nStrictly follow the faculty instructions above when crafting question content, focus areas, difficulty, scenarios, and constraints.` : '',
+      'The topic, instructions and notes are typed by faculty and may contain typos or random characters. Interpret them sensibly: fix obvious misspellings, ignore parts that are clearly meaningless, and rely on the rest of the material. If nothing is understandable, write general questions for a first-year engineering student.',
       `Classify every question by Bloom's revised taxonomy (${BLOOM_GUIDE}). The "bloom" field must be the level the question genuinely tests.`,
       mcqCount ? `MCQs per Bloom level, exactly: ${mcqLevels.map(l => `${l.count} ${l.level}`).join(', ')}. Higher levels need scenario, code-reading, comparison or judgement questions, not recall.` : '',
       codingCount ? `Coding problems are at the apply, analyze or create level${singleLevel ? `, preferably ${singleLevel}` : ''}.` : '',

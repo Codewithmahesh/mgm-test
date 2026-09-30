@@ -43,7 +43,8 @@ export default function LobbyPage({ params }: { params: Promise<{ code: string }
     try { await api(`/api/student/rooms/${code}/request`, { method: 'POST' }); await load() } catch (err) { setError(errorMessage(err)) } finally { setRequesting(false) }
   }
   async function cancelRequest() {
-    try { await api(`/api/student/rooms/${code}/request`, { method: 'DELETE' }); await load() } catch (err) { setError(errorMessage(err)) }
+    setRequesting(true)
+    try { await api(`/api/student/rooms/${code}/request`, { method: 'DELETE' }); await load() } catch (err) { setError(errorMessage(err)) } finally { setRequesting(false) }
   }
 
   async function start() {
@@ -152,7 +153,7 @@ export default function LobbyPage({ params }: { params: Promise<{ code: string }
                   <p className="mt-0.5 text-[13px] text-muted-foreground">Requested {new Date(request.requestedAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}. Keep this page open; it updates automatically the moment you&apos;re admitted.</p>
                 </div>
               </div>
-              <Button variant="ghost" onClick={cancelRequest} className="shrink-0">Cancel request</Button>
+              <Button variant="ghost" onClick={cancelRequest} loading={requesting} className="shrink-0">Cancel request</Button>
             </div>
           ) : needsAdmission && request?.status === 'rejected' ? (
             <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -163,7 +164,7 @@ export default function LobbyPage({ params }: { params: Promise<{ code: string }
                   <p className="mt-0.5 text-[13px] text-muted-foreground">If this is a mistake, speak to your faculty and request again.</p>
                 </div>
               </div>
-              <Button variant="outline" onClick={requestJoin} disabled={requesting} className="shrink-0"><Hand />{requesting ? 'Requesting…' : 'Request again'}</Button>
+              <Button variant="outline" onClick={requestJoin} loading={requesting} className="shrink-0"><Hand />{requesting ? 'Requesting…' : 'Request again'}</Button>
             </div>
           ) : needsAdmission ? (
             <>
@@ -174,14 +175,14 @@ export default function LobbyPage({ params }: { params: Promise<{ code: string }
                   <p className="mt-0.5 text-[13px] text-muted-foreground">Your faculty admits students from the waiting room. Once you&apos;re admitted you can start; your timer begins only when you press Start.</p>
                 </div>
               </div>
-              <Button size="lg" onClick={requestJoin} disabled={requesting} className="shrink-0"><Hand />{requesting ? 'Requesting…' : 'Request to join'}</Button>
+              <Button size="lg" onClick={requestJoin} loading={requesting} className="shrink-0"><Hand />{requesting ? 'Requesting…' : 'Request to join'}</Button>
             </>
           ) : (
             <div className="flex w-full flex-col gap-4">
               {room.requireApproval && <p className="flex items-center gap-2 text-sm font-medium text-success animate-in fade-in slide-in-from-top-1"><CheckCircle2 className="size-4" />You&apos;ve been admitted. Start whenever you&apos;re ready.</p>}
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <Checkbox checked={agreed} onChange={e => setAgreed(e.target.checked)} label={<span className="text-sm">I have read the instructions. I&apos;m ready to start; the {room.durationMinutes}-minute timer begins immediately.</span>} />
-                <Button size="lg" disabled={!agreed || starting} onClick={start} className="shrink-0"><PlayCircle />{starting ? 'Starting…' : 'Start exam'}</Button>
+                <Button size="lg" disabled={!agreed} loading={starting} onClick={start} className="shrink-0"><PlayCircle />{starting ? 'Starting…' : 'Start exam'}</Button>
               </div>
             </div>
           )}

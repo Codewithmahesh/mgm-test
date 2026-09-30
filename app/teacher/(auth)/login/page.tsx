@@ -38,7 +38,7 @@ function LoginForm() {
       <Field label={<span className="flex w-full justify-between">Password<Link href="/teacher/forgot-password" className="font-normal text-primary hover:underline">Forgot password?</Link></span>} htmlFor="password">
         <PasswordInput id="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} />
       </Field>
-      <Button type="submit" size="lg" disabled={loading} className="mt-2 w-full">{loading ? 'Signing in…' : 'Sign in'}</Button>
+      <Button type="submit" size="lg" loading={loading} className="mt-2 w-full">{loading ? 'Signing in…' : 'Sign in'}</Button>
     </form>
   )
 }

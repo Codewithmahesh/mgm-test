@@ -32,8 +32,15 @@ const buttonVariants = cva(
   },
 )
 
-function Button({ className, variant = 'default', size = 'default', ...props }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
-  return <ButtonPrimitive data-slot="button" className={cn(buttonVariants({ variant, size, className }))} {...props} />
+/** `loading` disables the button and swaps its icon for a spinner while an action runs. */
+function Button({ className, variant = 'default', size = 'default', loading = false, disabled, children, ...props }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { loading?: boolean }) {
+  return (
+    <ButtonPrimitive data-slot="button" aria-busy={loading || undefined} disabled={disabled || loading}
+      className={cn(buttonVariants({ variant, size, className }), loading && '[&>svg]:hidden')} {...props}>
+      {loading && <span aria-hidden className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent opacity-80" />}
+      {children}
+    </ButtonPrimitive>
+  )
 }
 
 export { Button, buttonVariants }

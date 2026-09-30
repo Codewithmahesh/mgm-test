@@ -16,6 +16,7 @@ import { BLOOM_INFO, BLOOM_LEVELS, setNames, splitByShares, type BloomLevel, typ
 import { cn } from '@/lib/utils'
 import { TeacherContext } from '@/components/role-context'
 import { GenerationProgress, type GenerationRequest } from '@/components/generation-progress'
+import { useGibberishCheck } from '@/components/gibberish-check'
 
 export type AddMethod = 'ai' | 'csv' | 'manual' | 'bank'
 
@@ -119,7 +120,7 @@ export function AddQuestions({ open, onClose, roomId, initialMethod = 'ai', defa
             <span className="text-[13px] text-muted-foreground">{mcqs} MCQ · {drafts.length - mcqs} coding{setSummary && ` · ${setSummary}`}</span>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setEditing({ index: null, question: blankQuestion() })}><Plus />Add another</Button>
-              <Button onClick={saveDrafts} disabled={saving}>{saving ? 'Saving…' : `Save ${drafts.length} question${drafts.length === 1 ? '' : 's'}`}</Button>
+              <Button onClick={saveDrafts} loading={saving}>{saving ? 'Saving…' : `Save ${drafts.length} question${drafts.length === 1 ? '' : 's'}`}</Button>
             </div>
           </div>
         ) : undefined}>
@@ -222,6 +223,7 @@ function AiGenerator({ defaults, roomId, onResult, email, onClose }: {
 }) {
   const inRoom = Boolean(roomId)
   const { confirm } = useFeedback()
+  const checkText = useGibberishCheck()
   const [mode, setMode] = useState<'pdf' | 'text' | 'topic'>('pdf')
   const [files, setFiles] = useState<File[]>([])
   const [text, setText] = useState('')
@@ -287,6 +289,7 @@ function AiGenerator({ defaults, roomId, onResult, email, onClose }: {
     if (useSets && (sets < 2 || sets > MAX_SETS)) return setError(`Choose between 2 and ${MAX_SETS} sets.`)
     if (totalMcq > MAX_TOTAL_MCQ) return setError(`That is ${totalMcq} MCQs in total; generate at most ${MAX_TOTAL_MCQ} at a time (fewer sets or fewer questions per set).`)
     if (totalCoding > MAX_TOTAL_CODING) return setError(`That is ${totalCoding} coding problems in total; generate at most ${MAX_TOTAL_CODING} at a time (fewer sets or fewer problems per set).`)
+    if (!(await checkText([{ label: 'Topic', value: topic }, { label: 'Instructions', value: description }, ...(mode === 'text' ? [{ label: 'Pasted content', value: text }] : [])]))) return
     setStarting(true)
     try {
       // The server splits the request into parts and keeps it, so it can also finish in the background.
@@ -523,7 +526,7 @@ function BankPicker({ roomId, onAdded }: { roomId: string; onAdded: (count: numb
       </div>
       <div className="flex items-center justify-between">
         <span className="text-[13px] text-muted-foreground">{selected.size} selected</span>
-        <Button onClick={add} disabled={!selected.size || saving}>{saving ? 'Adding…' : `Copy ${selected.size || ''} into room`}</Button>
+        <Button onClick={add} disabled={!selected.size} loading={saving}>{saving ? 'Adding…' : `Copy ${selected.size || ''} into room`}</Button>
       </div>
     </div>
   )

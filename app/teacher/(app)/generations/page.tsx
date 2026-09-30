@@ -37,6 +37,7 @@ function Generations() {
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [error, setError] = useState('')
   const [review, setReview] = useState<Job | null>(null)
+  const [removing, setRemoving] = useState<string | null>(null)
 
   const load = useCallback(() => api<{ jobs: Job[] }>('/api/generation-jobs').then(data => { setJobs(data.jobs); setError('') }).catch(err => setError(errorMessage(err))), [])
   useEffect(() => { void load() }, [load])
@@ -67,10 +68,11 @@ function Generations() {
       cancelLabel: 'Keep',
       tone: 'danger',
     }))) return
+    setRemoving(job.id)
     try {
       await api(`/api/generation-jobs/${job.id}`, { method: 'DELETE' })
       setJobs(list => list?.filter(j => j.id !== job.id) ?? null)
-    } catch (err) { toast(errorMessage(err), 'error') }
+    } catch (err) { toast(errorMessage(err), 'error') } finally { setRemoving(null) }
   }
 
   const ready = jobs?.filter(j => j.status === 'ready') ?? []
@@ -83,7 +85,7 @@ function Generations() {
       ) : (
         <div className="flex flex-col gap-3">
           {ready.length > 0 && <p className="text-[13px] text-muted-foreground"><b className="font-semibold text-foreground">{ready.length}</b> batch{ready.length === 1 ? '' : 'es'} ready to review.</p>}
-          {jobs.map(job => <JobCard key={job.id} job={job} onReview={() => setReview(job)} onRemove={() => remove(job)} />)}
+          {jobs.map(job => <JobCard key={job.id} job={job} removing={removing === job.id} onReview={() => setReview(job)} onRemove={() => remove(job)} />)}
         </div>
       )}
       <AddQuestions open={Boolean(review)} reviewJobId={review?.id ?? null} roomId={review?.room?.id ?? null} onClose={() => setReview(null)}
@@ -92,7 +94,7 @@ function Generations() {
   )
 }
 
-function JobCard({ job, onReview, onRemove }: { job: Job; onReview: () => void; onRemove: () => void }) {
+function JobCard({ job, removing, onReview, onRemove }: { job: Job; removing: boolean; onReview: () => void; onRemove: () => void }) {
   const requested = `${job.requested.mcq ? `${job.requested.mcq} MCQs` : ''}${job.requested.mcq && job.requested.coding ? ' + ' : ''}${job.requested.coding ? `${job.requested.coding} coding` : ''}`
   const { total, done, failed } = job.progress
   const percent = total ? Math.round(((done + failed) / total) * 100) : 0
@@ -132,7 +134,7 @@ function JobCard({ job, onReview, onRemove }: { job: Job; onReview: () => void; 
         </div>
         <div className="flex shrink-0 gap-2">
           {job.status === 'ready' && <Button onClick={onReview}><CheckCircle2 />Review and add</Button>}
-          <Button variant="outline" onClick={onRemove}><Trash2 />{job.status === 'running' ? 'Cancel' : job.status === 'ready' ? 'Discard' : 'Dismiss'}</Button>
+          <Button variant="outline" loading={removing} onClick={onRemove}><Trash2 />{job.status === 'running' ? 'Cancel' : job.status === 'ready' ? 'Discard' : 'Dismiss'}</Button>
         </div>
       </div>
     </Card>

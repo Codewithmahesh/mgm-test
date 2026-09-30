@@ -108,7 +108,7 @@ export function OtpFlow({ purpose, account = 'student' }: { purpose: 'activate' 
           <Field label={account === 'teacher' ? 'Email' : 'College email'} htmlFor="email" hint={purpose === 'activate' ? 'Use the email your faculty added, e.g. sd24_name@mgmcen.ac.in' : 'The email you use to sign in.'}>
             <Input id="email" type="email" autoComplete="email" required autoFocus value={email} onChange={e => setEmail(e.target.value.trim())} placeholder={account === 'teacher' ? 'you@college.edu' : 'sd24_name@mgmcen.ac.in'} />
           </Field>
-          <Button type="submit" size="lg" disabled={loading} className="mt-2 w-full">{loading ? 'Sending code…' : 'Send verification code'}</Button>
+          <Button type="submit" size="lg" loading={loading} className="mt-2 w-full">{loading ? 'Sending code…' : 'Send verification code'}</Button>
         </form>
       )}
 
@@ -125,7 +125,7 @@ export function OtpFlow({ purpose, account = 'student' }: { purpose: 'activate' 
               ))}
             </div>
           </div>
-          <Button type="submit" size="lg" disabled={loading} className="w-full">{loading ? 'Verifying…' : 'Verify code'}</Button>
+          <Button type="submit" size="lg" loading={loading} className="w-full">{loading ? 'Verifying…' : 'Verify code'}</Button>
           <div className="flex items-center justify-between text-[13px]">
             <button type="button" onClick={() => { setStep('email'); setInfo('') }} className="text-muted-foreground hover:text-foreground">Change email</button>
             <button type="button" disabled={cooldown > 0 || loading} onClick={requestCode} className="font-medium text-primary disabled:text-subtle">{cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend code'}</button>
@@ -141,7 +141,7 @@ export function OtpFlow({ purpose, account = 'student' }: { purpose: 'activate' 
           <Field label="Confirm password" htmlFor="confirm">
             <PasswordInput id="confirm" autoComplete="new-password" required minLength={8} value={confirm} onChange={e => setConfirm(e.target.value)} />
           </Field>
-          <Button type="submit" size="lg" disabled={loading} className="mt-2 w-full">{loading ? 'Saving…' : purpose === 'activate' ? 'Activate account' : 'Save new password'}</Button>
+          <Button type="submit" size="lg" loading={loading} className="mt-2 w-full">{loading ? 'Saving…' : purpose === 'activate' ? 'Activate account' : 'Save new password'}</Button>
         </form>
       )}
     </div>

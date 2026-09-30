@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Clock3, Code2, Layers, ListChecks, Scale, Shuffle, Trophy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'
+import { useGibberishCheck } from '@/components/gibberish-check'
 import { Alert, Field, Input, Select, Textarea } from '@/components/ui/form'
 import { useFeedback } from '@/components/ui/overlay'
 import { BloomPlanEditor, draftCount, draftToPlan, emptyPlanDraft, planToDraft, type PlanDraft } from '@/components/bloom-plan'
@@ -91,6 +92,7 @@ function Choice({ selected, onSelect, icon: Icon, title, text }: { selected: boo
 
 export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: RoomFormValues; submitLabel: string; onSubmit: (values: RoomFormValues) => Promise<void>; pool?: { mcq: number; coding: number } }) {
   const { confirm } = useFeedback()
+  const checkText = useGibberishCheck()
   const [values, setValues] = useState(initial)
   const [accessMode, setAccessMode] = useState<'specific' | 'all'>(() => {
     if (initial.title && initial.allowedClassrooms.length === 0) return 'all'
@@ -129,6 +131,7 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
       confirmLabel: 'Continue',
       cancelLabel: 'Review plan',
     }))) return
+    if (!(await checkText([{ label: 'Exam name', value: values.title }, { label: 'Description', value: values.description }, { label: 'Instructions', value: values.instructions }]))) return
     setSaving(true)
     setError('')
     try {
@@ -359,7 +362,7 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
             {Number(values.negativeMarks) > 0 && <p className="text-xs text-warning">−{values.negativeMarks} for each wrong MCQ</p>}
           </dl>
           <div className="border-t border-border p-4">
-            <Button type="submit" size="lg" disabled={saving} className="w-full">{saving ? 'Saving…' : submitLabel}</Button>
+            <Button type="submit" size="lg" loading={saving} className="w-full">{saving ? 'Saving…' : submitLabel}</Button>
           </div>
         </Card>
       </aside>

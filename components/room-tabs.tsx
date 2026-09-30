@@ -292,12 +292,14 @@ export function ParticipantsTab({ room, onChanged }: { room: Room; onChanged: ()
   const { toast, confirm } = useFeedback()
   const { rows, error, reload } = useAttempts(room.id, room.status === 'open')
   const [flaggedOnly, setFlaggedOnly] = useState(false)
+  const [submitting, setSubmitting] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
   useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(t) }, [])
 
   async function forceSubmit(row: AttemptRow) {
     if (!(await confirm({ title: `Submit ${row.studentName}'s exam now?`, description: 'Their current answers will be graded and they won\'t be able to continue.', confirmLabel: 'Submit now', tone: 'danger' }))) return
-    try { await api(`/api/rooms/${room.id}/attempts/${row.id}`, { method: 'PATCH', body: { action: 'submit' } }); toast('Exam submitted.'); reload(); onChanged() } catch (err) { toast(errorMessage(err), 'error') }
+    setSubmitting(row.id)
+    try { await api(`/api/rooms/${room.id}/attempts/${row.id}`, { method: 'PATCH', body: { action: 'submit' } }); toast('Exam submitted.'); reload(); onChanged() } catch (err) { toast(errorMessage(err), 'error') } finally { setSubmitting(null) }
   }
 
   if (error) return <Alert>{error}</Alert>
@@ -332,7 +334,7 @@ export function ParticipantsTab({ room, onChanged }: { room: Room; onChanged: ()
                     <td className="text-xs text-muted-foreground">{relativeTime(row.lastSeenAt)}</td>
                     <td className="text-right"><div className="flex justify-end gap-1">
                       <Link href={`/teacher/rooms/${room.id}/attempts/${row.id}`} className={buttonVariants({ variant: 'ghost', size: 'xs' })}>View</Link>
-                      {row.status === 'in_progress' && <Button variant="ghost" size="xs" className="text-danger" onClick={() => forceSubmit(row)}><Send />Submit</Button>}
+                      {row.status === 'in_progress' && <Button variant="ghost" size="xs" className="text-danger" loading={submitting === row.id} onClick={() => forceSubmit(row)}><Send />Submit</Button>}
                     </div></td>
                   </tr>
                 )
@@ -422,10 +424,12 @@ function RankBadge({ rank }: { rank: number | null }) {
 
 export function SettingsTab({ room, onSaved, onDeleted }: { room: Room; onSaved: (room: Room) => void; onDeleted: () => void }) {
   const { toast, confirm } = useFeedback()
+  const [deleting, setDeleting] = useState(false)
   async function remove() {
     const ok = await confirm({ title: `Delete "${room.title}"?`, description: `This permanently deletes the room and all ${room.joined} student result${room.joined === 1 ? '' : 's'}. Its questions stay in your question bank.`, confirmLabel: 'Delete room', tone: 'danger' })
     if (!ok) return
-    try { await api(`/api/rooms/${room.id}`, { method: 'DELETE' }); toast('Room deleted.'); onDeleted() } catch (err) { toast(errorMessage(err), 'error') }
+    setDeleting(true)
+    try { await api(`/api/rooms/${room.id}`, { method: 'DELETE' }); toast('Room deleted.'); onDeleted() } catch (err) { toast(errorMessage(err), 'error'); setDeleting(false) }
   }
   return (
     <div className="flex flex-col gap-6">
@@ -438,7 +442,7 @@ export function SettingsTab({ room, onSaved, onDeleted }: { room: Room; onSaved:
       <Card className="border-danger-border lg:mr-[324px]">
         <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div><h3 className="text-sm font-semibold text-danger">Delete this room</h3><p className="mt-0.5 text-[13px] text-muted-foreground">Removes the room and every student&apos;s result. This can&apos;t be undone.</p></div>
-          <Button variant="destructive-outline" onClick={remove}><Trash2 />Delete room</Button>
+          <Button variant="destructive-outline" loading={deleting} onClick={remove}><Trash2 />{deleting ? 'Deleting…' : 'Delete room'}</Button>
         </div>
       </Card>
     </div>

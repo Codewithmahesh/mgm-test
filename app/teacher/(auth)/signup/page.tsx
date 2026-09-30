@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { AuthShell } from '@/components/auth-shell'
 import { PasswordInput } from '@/components/password-input'
+import { useGibberishCheck } from '@/components/gibberish-check'
 import { Button } from '@/components/ui/button'
 import { Alert, Field, Input, Select } from '@/components/ui/form'
 import { DEPARTMENT_OPTIONS, api, errorMessage } from '@/lib/api'
@@ -14,10 +15,12 @@ export default function TeacherSignupPage() {
   const [customDept, setCustomDept] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const checkText = useGibberishCheck()
   const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm(value => ({ ...value, [key]: event.target.value }))
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
+    if (!(await checkText([{ label: 'Full name', value: form.name }, ...(isCustomDept ? [{ label: 'Department', value: customDept }] : [])]))) return
     setLoading(true)
     setError('')
     try {
@@ -83,7 +86,7 @@ export default function TeacherSignupPage() {
         <Field label="Faculty sign-up code" htmlFor="signupCode" required hint="Provided by the college administrator. Keeps student data private to faculty.">
           <Input id="signupCode" required autoComplete="off" value={form.signupCode} onChange={set('signupCode')} className="font-mono" />
         </Field>
-        <Button type="submit" size="lg" disabled={loading} className="mt-2 w-full">{loading ? 'Creating account…' : 'Create account'}</Button>
+        <Button type="submit" size="lg" loading={loading} className="mt-2 w-full">{loading ? 'Creating account…' : 'Create account'}</Button>
       </form>
     </AuthShell>
   )

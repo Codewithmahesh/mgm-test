@@ -31,6 +31,8 @@ export function AppShell({ role, nav, user, onLogout, profileHref, action, child
   const { choice, setChoice } = useTheme()
   const [collapsed, setCollapsed] = useState(false)
   const [drawer, setDrawer] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
+  const signOut = () => { setSigningOut(true); onLogout() }
 
   useEffect(() => { try { setCollapsed(localStorage.getItem('mgm-sidebar') === 'collapsed') } catch { /* storage blocked */ } }, [])
   useEffect(() => { setDrawer(false) }, [pathname])
@@ -66,7 +68,7 @@ export function AppShell({ role, nav, user, onLogout, profileHref, action, child
             <div className="truncate text-xs text-muted-foreground">{user?.email}</div>
           </div>
           {profileHref && <Link href={profileHref} onClick={close} className="flex items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-secondary-hover"><UserRound className="size-4 opacity-70" />Profile</Link>}
-          <MenuItem icon={LogOut} onClick={() => { close(); onLogout() }}>Sign out</MenuItem>
+          <MenuItem icon={LogOut} onClick={() => { close(); signOut() }}>Sign out</MenuItem>
         </div>
       )}
     </Menu>
@@ -137,6 +139,12 @@ export function AppShell({ role, nav, user, onLogout, profileHref, action, child
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
+      {signingOut && (
+        <div role="status" className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-sm">
+          <span className="size-6 animate-spin rounded-full border-2 border-border-strong border-t-primary" />
+          <p className="text-sm font-medium">Signing out…</p>
+        </div>
+      )}
       <aside className={cn('relative hidden shrink-0 border-r border-sidebar-border bg-sidebar transition-[width] duration-300 ease-out lg:block', collapsed ? 'w-[76px]' : 'w-[280px]')}>
         {sidebar(false)}
       </aside>
@@ -175,7 +183,7 @@ export function AppShell({ role, nav, user, onLogout, profileHref, action, child
                     {user?.detail && <div className="mt-0.5 truncate text-xs text-muted-foreground">{user.detail}</div>}
                   </div>
                   {profileHref && <Link href={profileHref} onClick={close} className="flex items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-secondary-hover"><UserRound className="size-4 opacity-70" />Profile</Link>}
-                  <MenuItem icon={LogOut} onClick={() => { close(); onLogout() }}>Sign out</MenuItem>
+                  <MenuItem icon={LogOut} onClick={() => { close(); signOut() }}>Sign out</MenuItem>
                 </>
               )}
             </Menu>

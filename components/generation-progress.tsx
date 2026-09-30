@@ -3,7 +3,6 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { BadgeCheck, Check, Clock3, Code2, ListChecks, Mail, PenLine, ScanSearch, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/card'
 import { useFeedback } from '@/components/ui/overlay'
 import { TeacherContext } from '@/components/role-context'
 import { ApiError, api, errorMessage, type DraftQuestion } from '@/lib/api'
@@ -53,7 +52,9 @@ export function GenerationProgress({ jobId, request, onReady, onBackground, onSt
   const [job, setJob] = useState<JobSummary | null>(null)
   const [written, setWritten] = useState<DraftQuestion[]>([])
   const [elapsed, setElapsed] = useState(0)
-  const [handingOff, setHandingOff] = useState(false)
+  // What the screen is busy doing after a button press (shown as an overlay until it's done).
+  const [pending, setPending] = useState<'background' | 'cancel' | null>(null)
+  const handingOff = pending !== null
   // Set once the outcome is decided (ready, failed, background, cancelled) so every worker stops.
   const settled = useRef(false)
   const callbacks = useRef({ onReady, onBackground, onStop })
@@ -72,18 +73,19 @@ export function GenerationProgress({ jobId, request, onReady, onBackground, onSt
   const email = teacher?.email ?? 'your email'
 
   async function toBackground() {
-    setHandingOff(true)
+    setPending('background')
     try {
       await api(`/api/generation-jobs/${jobId}`, { method: 'PATCH', body: { action: 'background' } })
       callbacks.current.onBackground()
     } catch (err) {
       // Finished in the meantime: show it.
       if (err instanceof ApiError && err.status === 409) { settled.current = false; await finish() }
-      else { setHandingOff(false); callbacks.current.onStop(errorMessage(err)) }
+      else { setPending(null); callbacks.current.onStop(errorMessage(err)) }
     }
   }
 
   async function cancel(message: string) {
+    setPending('cancel')
     await api(`/api/generation-jobs/${jobId}`, { method: 'DELETE' }).catch(() => {})
     callbacks.current.onStop(message)
   }
@@ -177,89 +179,95 @@ export function GenerationProgress({ jobId, request, onReady, onBackground, onSt
 
   const writtenMcq = written.filter(q => q.type !== 'coding')
   const writtenCoding = written.length - writtenMcq.length
-  const recent = written.slice(-4).reverse()
+  const recent = written.slice(-2).reverse()
   const slow = elapsed >= slowAt && !handingOff
   const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-4">
-        <div className="relative flex size-12 shrink-0 items-center justify-center">
-          <span className="absolute inset-0 animate-ping rounded-full bg-primary/20 [animation-duration:2s]" />
-          <span className="relative flex size-12 items-center justify-center rounded-full bg-primary-soft"><Sparkles className="size-5 animate-pulse text-primary" /></span>
+    <div className="relative mx-auto flex w-full max-w-xl flex-col gap-3.5">
+      {pending && (
+        <div role="status" className="absolute -inset-2 z-10 flex animate-float-in flex-col items-center justify-center gap-2.5 rounded-lg bg-card/85 backdrop-blur-[2px]">
+          <span className="size-6 animate-spin rounded-full border-2 border-border-strong border-t-primary" />
+          <p className="text-sm font-medium">{pending === 'background' ? 'Moving it to the background…' : 'Cancelling…'}</p>
+          {pending === 'background' && <p className="text-xs text-muted-foreground">Just a moment; then you can close this tab.</p>}
+        </div>
+      )}
+      <div className="flex items-center gap-3">
+        <div className="relative flex size-8 shrink-0 items-center justify-center">
+          <span className="absolute inset-0 animate-ping rounded-full bg-primary/15 [animation-duration:2.4s]" />
+          <span className="relative flex size-8 items-center justify-center rounded-full bg-primary-soft"><Sparkles className="size-4 animate-pulse text-primary" /></span>
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-base font-semibold">Generating {total} question{total === 1 ? '' : 's'}{range ? ` in ${request.sets.length} sets` : ''}</p>
-          <p key={message} className="mt-0.5 animate-float-in truncate text-[13px] text-muted-foreground">{message}…</p>
+          <p className="text-sm font-semibold">Generating {total} question{total === 1 ? '' : 's'}{range ? ` in ${request.sets.length} sets` : ''}</p>
+          <p key={message} className="animate-float-in truncate text-xs text-muted-foreground">{message}…</p>
         </div>
-        <span className="flex shrink-0 items-center gap-1 font-mono text-xs tabular-nums text-muted-foreground"><Clock3 className="size-3.5" />{clock}</span>
+        <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums text-muted-foreground"><Clock3 className="size-3" />{clock}</span>
       </div>
 
       <div>
-        <div className="relative h-2 overflow-hidden rounded-full bg-muted">
+        <div className="relative h-1.5 overflow-hidden rounded-full bg-muted">
           <div className="h-full rounded-full bg-primary transition-[width] duration-700 ease-out" style={{ width: `${percent}%` }} />
           <div className="absolute inset-y-0 left-0 w-1/3 animate-shimmer bg-gradient-to-r from-transparent via-white/40 to-transparent" />
         </div>
-        <div className="mt-1.5 flex justify-between text-xs text-muted-foreground">
+        <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
           <span>{parts > 1 ? `${done} of ${parts} parts done` : 'Working on it'}</span>
           <span className="tabular-nums">{percent}%</span>
         </div>
       </div>
 
-      <ol className="flex flex-col gap-2.5">
+      <ol className="flex flex-col gap-1.5">
         {stages.map((item, i) => (
-          <li key={item.label} className={cn('flex items-center gap-3 text-sm transition-colors', i > stage && 'text-muted-foreground/60')}>
-            <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-full border transition-all duration-500',
+          <li key={item.label} className={cn('flex items-center gap-2 text-xs transition-colors', i > stage ? 'text-muted-foreground/60' : i < stage ? 'text-muted-foreground' : 'text-foreground')}>
+            <span className={cn('flex size-4.5 shrink-0 items-center justify-center rounded-full border transition-all duration-500',
               i < stage ? 'border-success bg-success text-white' : i === stage ? 'border-primary bg-primary-soft text-primary' : 'border-border')}>
-              {i < stage ? <Check className="size-3.5" /> : <item.icon className={cn('size-3.5', i === stage && 'animate-pulse')} />}
+              {i < stage ? <Check className="size-2.5" /> : <item.icon className={cn('size-2.5', i === stage && 'animate-pulse')} />}
             </span>
-            <span className={cn(i === stage && 'font-medium')}>{item.label}</span>
+            <span className={cn('truncate', i === stage && 'font-medium')}>{item.label}</span>
             {i === stage && <span className="flex gap-0.5">{[0, 1, 2].map(d => <span key={d} className="size-1 animate-pulse rounded-full bg-primary" style={{ animationDelay: `${d * 200}ms` }} />)}</span>}
           </li>
         ))}
       </ol>
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        {mcqTotal > 0 && <Counter label="MCQs written" value={writtenMcq.length} total={mcqTotal} />}
-        {request.coding > 0 && <Counter label="Coding problems written" value={writtenCoding} total={request.coding} icon={Code2} />}
-      </div>
-      {mcqTotal > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {BLOOM_LEVELS.map((level, i) => request.levels[i] ? (
-            <Badge key={level} tone={BLOOM_INFO[level].tone}>L{BLOOM_INFO[level].n} {BLOOM_INFO[level].label} · {writtenMcq.filter(q => q.bloom === level).length}/{request.levels[i]}</Badge>
-          ) : null)}
+      <div className="flex flex-col gap-2 rounded-md bg-muted/40 px-3 py-2">
+        <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+          {mcqTotal > 0 && <Counter label="MCQs" value={writtenMcq.length} total={mcqTotal} />}
+          {request.coding > 0 && <Counter label="Coding" value={writtenCoding} total={request.coding} icon={Code2} />}
         </div>
-      )}
+        {mcqTotal > 0 && (
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+            {BLOOM_LEVELS.map((level, i) => request.levels[i] ? (
+              <span key={level} className="tabular-nums">L{BLOOM_INFO[level].n} {BLOOM_INFO[level].label} <span className="text-foreground">{writtenMcq.filter(q => q.bloom === level).length}/{request.levels[i]}</span></span>
+            ) : null)}
+          </div>
+        )}
+      </div>
 
       {recent.length > 0 && (
-        <div>
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Just written</p>
-          <ul className="flex flex-col gap-1.5">
-            {recent.map((q, i) => (
-              <li key={`${written.length}-${i}`} className="flex animate-float-in items-start gap-2 rounded-md border border-border bg-card px-3 py-2 text-[13px]" style={{ animationDelay: `${i * 80}ms` }}>
-                {q.type === 'coding' ? <Code2 className="mt-0.5 size-3.5 shrink-0 text-violet" /> : <PenLine className="mt-0.5 size-3.5 shrink-0 text-primary" />}
-                <span className="line-clamp-2 min-w-0 flex-1">{q.type === 'coding' ? q.title || q.text : q.text}</span>
-                {q.bloom && <span className="shrink-0 text-[11px] text-muted-foreground">{bloomLabel(q.bloom)}</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ul className="flex flex-col gap-1">
+          {recent.map((q, i) => (
+            <li key={`${written.length}-${i}`} className="flex animate-float-in items-center gap-2 text-xs text-muted-foreground" style={{ animationDelay: `${i * 80}ms` }}>
+              {q.type === 'coding' ? <Code2 className="size-3 shrink-0 text-violet" /> : <PenLine className="size-3 shrink-0 text-primary" />}
+              <span className="min-w-0 flex-1 truncate text-foreground/80">{q.type === 'coding' ? q.title || q.text : q.text}</span>
+              {q.bloom && <span className="shrink-0 text-[10px]">{bloomLabel(q.bloom)}</span>}
+            </li>
+          ))}
+        </ul>
       )}
 
       {slow && (
-        <div className="animate-float-in rounded-lg border border-warning-border bg-warning-soft p-4">
-          <p className="text-sm font-semibold text-warning-ink">This is taking longer than usual</p>
-          <p className="mt-1 text-[13px] leading-5 text-warning-ink/90">The AI is slower than normal right now. You can keep waiting, or let us finish it in the background: you can then close this tab safely, and we&apos;ll email <b>{email}</b> when the questions are ready to review and add.</p>
-          <div className="mt-3 flex flex-wrap gap-2">
+        <div className="animate-float-in rounded-md border border-warning-border bg-warning-soft px-3 py-2.5">
+          <p className="text-xs font-semibold text-warning-ink">This is taking longer than usual</p>
+          <p className="mt-0.5 text-xs leading-5 text-warning-ink/90">The AI is slower than normal right now. You can keep waiting, or let us finish it in the background: you can then close this tab safely, and we&apos;ll email <b>{email}</b> when the questions are ready to review and add.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" onClick={() => { settled.current = true; void toBackground() }}><Mail />Continue in background</Button>
             <Button size="sm" variant="outline" onClick={() => setSlowAt(elapsed + 120)}>Keep waiting</Button>
           </div>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
-        <span>Don&apos;t want to wait? Run it in the background, close the tab, and we&apos;ll email you.</span>
-        <div className="flex gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2.5 text-[11px] text-muted-foreground">
+        <span>Don&apos;t want to wait? Run it in the background and we&apos;ll email you.</span>
+        <div className="ml-auto flex gap-2">
           <Button size="sm" variant="ghost" disabled={handingOff} onClick={async () => {
             if (await confirm({ title: 'Cancel this generation?', description: 'Questions written so far will be discarded.', confirmLabel: 'Cancel generation', cancelLabel: 'Keep going', tone: 'danger' })) { settled.current = true; await cancel('') }
           }}>Cancel</Button>
@@ -272,9 +280,10 @@ export function GenerationProgress({ jobId, request, onReady, onBackground, onSt
 
 function Counter({ label, value, total, icon: Icon = PenLine }: { label: string; value: number; total: number; icon?: React.ComponentType<{ className?: string }> }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5">
-      <div className="flex items-center justify-between text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><Icon className="size-3.5" />{label}</span><span className="font-mono tabular-nums text-foreground">{Math.min(value, total)}/{total}</span></div>
-      <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-[width] duration-700" style={{ width: `${Math.min(100, (value / Math.max(1, total)) * 100)}%` }} /></div>
+    <div className="flex min-w-36 flex-1 items-center gap-2 text-xs text-muted-foreground">
+      <Icon className="size-3 shrink-0" />{label}
+      <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-[width] duration-700" style={{ width: `${Math.min(100, (value / Math.max(1, total)) * 100)}%` }} /></div>
+      <span className="font-mono text-[11px] tabular-nums text-foreground">{Math.min(value, total)}/{total}</span>
     </div>
   )
 }
