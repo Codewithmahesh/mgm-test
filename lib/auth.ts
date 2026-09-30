@@ -1,5 +1,5 @@
 import 'server-only'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { connectDb } from './db'
 import { RateLimit, Student, Teacher } from './models'
@@ -43,14 +43,27 @@ export async function readJson<T = Record<string, unknown>>(request: Request): P
   }
 }
 
+/** Sets the session cookie. Returns `{ token }` for the mobile app (x-client: mobile) to spread into the JSON reply, else `{}`. */
 export async function setTeacherSession(teacher: { _id: unknown; name: string }) {
   const token = await signToken({ sub: String(teacher._id), role: 'teacher', name: teacher.name }, TEACHER_MAX_AGE)
   ;(await cookies()).set(TEACHER_COOKIE, token, cookieOptions(TEACHER_MAX_AGE))
+  return mobileToken(token)
 }
 
 export async function setStudentSession(studentId: string) {
   const token = await signToken({ sub: studentId, role: 'student' }, STUDENT_MAX_AGE)
   ;(await cookies()).set(STUDENT_COOKIE, token, cookieOptions(STUDENT_MAX_AGE))
+  return mobileToken(token)
+}
+
+async function mobileToken(token: string): Promise<{ token?: string }> {
+  return (await headers()).get('x-client') === 'mobile' ? { token } : {}
+}
+
+/** The session token from the cookie (web) or an `Authorization: Bearer` header (mobile app). */
+export async function sessionToken(cookie: typeof TEACHER_COOKIE | typeof STUDENT_COOKIE) {
+  const bearer = (await headers()).get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]
+  return (await cookies()).get(cookie)?.value ?? bearer
 }
 
 export async function clearCookie(name: typeof TEACHER_COOKIE | typeof STUDENT_COOKIE) {
@@ -59,7 +72,7 @@ export async function clearCookie(name: typeof TEACHER_COOKIE | typeof STUDENT_C
 
 /** Returns the signed-in teacher or throws 401. */
 export async function requireTeacher() {
-  const session = await verifyToken<TeacherToken>((await cookies()).get(TEACHER_COOKIE)?.value, 'teacher')
+  const session = await verifyToken<TeacherToken>(await sessionToken(TEACHER_COOKIE), 'teacher')
   if (!session) throw new HttpError(401, 'Please sign in to continue.')
   await connectDb()
   const teacher = await Teacher.findById(session.sub).select('-passwordHash').lean()
@@ -69,7 +82,7 @@ export async function requireTeacher() {
 
 /** Returns the signed-in, activated student or throws 401. Pass `requireProfile` to also demand a completed profile. */
 export async function requireStudent({ requireProfile = true } = {}) {
-  const session = await verifyToken<StudentToken>((await cookies()).get(STUDENT_COOKIE)?.value, 'student')
+  const session = await verifyToken<StudentToken>(await sessionToken(STUDENT_COOKIE), 'student')
   if (!session) throw new HttpError(401, 'Please sign in with your college email to continue.')
   await connectDb()
   const student = await Student.findById(session.sub).populate<{ classroom: { _id: unknown; class?: string; branch?: string; division?: string } | null }>('classroom').select('-passwordHash')

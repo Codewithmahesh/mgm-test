@@ -17,6 +17,6 @@ export const POST = handler(async (request: Request) => {
   const teacher = await Teacher.findOne({ email })
   if (!teacher || !(await bcrypt.compare(password, teacher.passwordHash))) throw new HttpError(401, 'Incorrect email or password.')
 
-  await setTeacherSession(teacher)
-  return NextResponse.json({ teacher: { id: String(teacher._id), name: teacher.name, email: teacher.email } })
+  const session = await setTeacherSession(teacher)
+  return NextResponse.json({ ...session, teacher: { id: String(teacher._id), name: teacher.name, email: teacher.email } })
 })

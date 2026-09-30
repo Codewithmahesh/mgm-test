@@ -18,6 +18,6 @@ export const POST = handler(async (request: Request) => {
   if (student && !student.activatedAt) throw new HttpError(409, 'Your account is not activated yet. Use "Activate account" to set your password.')
   if (!student?.passwordHash || !(await bcrypt.compare(password, student.passwordHash))) throw new HttpError(401, 'Incorrect email or password.')
 
-  await setStudentSession(String(student._id))
-  return NextResponse.json({ profileComplete: Boolean(student.profileCompletedAt) })
+  const session = await setStudentSession(String(student._id))
+  return NextResponse.json({ ...session, profileComplete: Boolean(student.profileCompletedAt) })
 })

@@ -20,6 +20,6 @@ export const POST = handler(async (request: Request) => {
   student.activatedAt ??= new Date()
   await student.save()
 
-  await setStudentSession(String(student._id))
-  return NextResponse.json({ profileComplete: Boolean(student.profileCompletedAt) })
+  const session = await setStudentSession(String(student._id))
+  return NextResponse.json({ ...session, profileComplete: Boolean(student.profileCompletedAt) })
 })

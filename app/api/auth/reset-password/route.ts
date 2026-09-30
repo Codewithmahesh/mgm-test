@@ -19,6 +19,6 @@ export const POST = handler(async (request: Request) => {
   // Clear any reset link issued by the old link-based flow.
   await PasswordReset.deleteMany({ role: 'teacher', account: teacher._id })
 
-  await setTeacherSession(teacher)
-  return NextResponse.json({ ok: true })
+  const session = await setTeacherSession(teacher)
+  return NextResponse.json({ ...session, ok: true })
 })

@@ -1,15 +1,13 @@
-import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
-import { HttpError, handler } from '@/lib/auth'
+import { HttpError, handler, sessionToken } from '@/lib/auth'
 import { BRANCHES, Classroom, Student, YEARS, YEAR_LABELS, classLabel } from '@/lib/models'
 import { STUDENT_COOKIE, TEACHER_COOKIE, verifyToken } from '@/lib/session'
 
 /** GET /api/classrooms — every class with its student counts (for faculty) or classroom list (for students). */
 export const GET = handler(async () => {
-  const cookieStore = await cookies()
   const [teacherToken, studentToken] = await Promise.all([
-    verifyToken(cookieStore.get(TEACHER_COOKIE)?.value, 'teacher'),
-    verifyToken(cookieStore.get(STUDENT_COOKIE)?.value, 'student'),
+    verifyToken(await sessionToken(TEACHER_COOKIE), 'teacher'),
+    verifyToken(await sessionToken(STUDENT_COOKIE), 'student'),
   ])
 
   if (!teacherToken && !studentToken) {

@@ -22,6 +22,6 @@ export const POST = handler(async (request: Request) => {
   if (await Teacher.exists({ email })) throw new HttpError(409, 'An account with this email already exists. Try signing in.')
 
   const teacher = await Teacher.create({ name: name.slice(0, 80), email, department, passwordHash: await bcrypt.hash(password, 12) })
-  await setTeacherSession(teacher)
-  return NextResponse.json({ teacher: { id: String(teacher._id), name: teacher.name, email: teacher.email } }, { status: 201 })
+  const session = await setTeacherSession(teacher)
+  return NextResponse.json({ ...session, teacher: { id: String(teacher._id), name: teacher.name, email: teacher.email } }, { status: 201 })
 })
