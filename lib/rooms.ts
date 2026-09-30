@@ -4,6 +4,7 @@ import { HttpError } from './auth'
 import { INTEGRITY_EVENTS, INTEGRITY_EVENT_TYPES } from './integrity'
 import { BLOOM_INFO, BLOOM_LEVELS, normalizeBloom, type BloomPlan } from './bloom'
 import { Attempt, ExamRoom, JoinRequest, PAPER_MODES, Question, RESULT_VISIBILITY, isObjectId } from './models'
+import { poolProblems, type PaperConfig } from './paper-rules'
 
 // Sum of violation-type flags on an attempt, as a MongoDB expression.
 const violationsExpr = { $add: [...INTEGRITY_EVENT_TYPES.filter(t => INTEGRITY_EVENTS[t].violation).map(t => ({ $ifNull: [`$flags.${t}`, 0] })), 0] }
@@ -21,6 +22,7 @@ type RoomLean = {
   codingMarks?: number | null
   durationMinutes: number
   startsAt?: Date | null
+  autoOpen?: boolean | null
   status: string
   showResults?: string | null
   allowedClassrooms?: Types.ObjectId[] | null
@@ -85,6 +87,7 @@ export function serializeRoom(
     codingMarks: room.codingMarks ?? 10,
     durationMinutes: room.durationMinutes,
     startsAt: room.startsAt ?? null,
+    autoOpen: room.autoOpen ?? false,
     status: room.status,
     showResults: room.showResults ?? 'after_end',
     allowedClassrooms: (room.allowedClassrooms ?? []).map(String),
@@ -123,6 +126,16 @@ export function assertPaperSettings(room: { questionsPerStudent: number; paperMo
   if (room.paperMode === 'sets' && (room.setCount ?? 0) < 2) throw new HttpError(400, 'Choose how many sets to make (at least 2), or switch to random papers.')
 }
 
+/** Why a room (with any pending setting changes merged in) can't be opened yet, or null if it can. */
+export async function openProblem(room: PaperConfig & { _id: Types.ObjectId }) {
+  const pool = (await Question.find({ room: room._id }).select('type bloom setLabel').lean()).map(q => ({ type: q.type, bloom: q.bloom, set: q.setLabel }))
+  if (!pool.length) return 'Add questions before opening the room.'
+  const problems = poolProblems(room, pool)
+  if (problems.length) return `${problems[0]} Add more questions or change the paper settings.`
+  if (Number(room.questionsPerStudent) + Number(room.codingQuestions ?? 0) === 0) return 'Set how many MCQs or coding problems each student gets.'
+  return null
+}
+
 export async function findTeacherRoom(teacherId: Types.ObjectId, id: string) {
   if (!isObjectId(id)) throw new HttpError(404, 'Exam room not found.')
   const room = await ExamRoom.findOne({ _id: id, teacher: teacherId })
@@ -159,13 +172,12 @@ export function roomSettings(body: Record<string, unknown>, partial = false) {
   if (has('marksPerQuestion') || !partial) { settings.marksPerQuestion = 1; if (has('marksPerQuestion')) number('marksPerQuestion', 'Marks per MCQ', 0, 100, false) }
   if (has('negativeMarks')) number('negativeMarks', 'Negative marks', 0, 100, false)
   if (has('codingMarks')) number('codingMarks', 'Marks per coding problem', 0, 1000, false)
-  if (has('startsAt')) {
-    if (!body.startsAt) settings.startsAt = null
-    else {
-      const date = new Date(String(body.startsAt))
-      if (Number.isNaN(date.getTime())) throw new HttpError(400, 'Start time is not a valid date.')
-      settings.startsAt = date
-    }
+  // Every exam has a start time (it drives the scheduled emails and auto-open).
+  if (has('startsAt') || !partial) {
+    if (!body.startsAt) throw new HttpError(400, 'Choose when the exam starts.')
+    const date = new Date(String(body.startsAt))
+    if (Number.isNaN(date.getTime())) throw new HttpError(400, 'Start time is not a valid date.')
+    settings.startsAt = date
   }
   if (has('status')) {
     if (!['draft', 'open', 'closed'].includes(String(body.status))) throw new HttpError(400, 'Status must be draft, open or closed.')
@@ -175,6 +187,7 @@ export function roomSettings(body: Record<string, unknown>, partial = false) {
     if (!(RESULT_VISIBILITY as readonly string[]).includes(String(body.showResults))) throw new HttpError(400, 'Invalid result visibility.')
     settings.showResults = body.showResults
   }
+  if (has('autoOpen')) settings.autoOpen = Boolean(body.autoOpen)
   if (has('requireFullscreen')) settings.requireFullscreen = Boolean(body.requireFullscreen)
   if (has('blockCopyPaste')) settings.blockCopyPaste = Boolean(body.blockCopyPaste)
   if (has('requireApproval')) settings.requireApproval = Boolean(body.requireApproval)

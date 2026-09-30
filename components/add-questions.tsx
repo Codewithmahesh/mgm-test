@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, BookOpen, Download, FileText, FileUp, Layers, PenLine, Pencil, Plus, Search, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react'
+import Link from 'next/link'
+import { useContext, useEffect, useRef, useState } from 'react'
+import { ArrowLeft, BookOpen, Download, FileText, FileUp, Layers, PenLine, Pencil, Plus, Search, Sparkles, Mail, Trash2, Upload, Wand2, X } from 'lucide-react'
 import { QuestionCard } from '@/components/question-card'
 import { QuestionEditor, blankQuestion } from '@/components/question-editor'
 import { QuestionAttachmentButton } from '@/components/question-attachment'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/card'
 import { Alert, Checkbox, Field, Input, Select, Textarea } from '@/components/ui/form'
 import { Dialog, useFeedback } from '@/components/ui/overlay'
@@ -13,6 +14,8 @@ import { BloomPlanEditor, draftCount, draftToPlan, emptyPlanDraft, planToDraft, 
 import { api, errorMessage, type BankQuestion, type DraftQuestion } from '@/lib/api'
 import { BLOOM_INFO, BLOOM_LEVELS, setNames, splitByShares, type BloomLevel, type BloomPlan } from '@/lib/bloom'
 import { cn } from '@/lib/utils'
+import { TeacherContext } from '@/components/role-context'
+import { GenerationProgress, type GenerationRequest } from '@/components/generation-progress'
 
 export type AddMethod = 'ai' | 'csv' | 'manual' | 'bank'
 
@@ -33,15 +36,18 @@ const CSV_TEMPLATE = [
  * Four ways to add questions — AI, CSV, manual, or copying from the bank — all ending in a
  * review list the teacher can edit before anything is saved.
  */
-export function AddQuestions({ open, onClose, roomId, initialMethod = 'ai', defaults, onSaved }: {
+export function AddQuestions({ open, onClose, roomId, initialMethod = 'ai', defaults, onSaved, reviewJobId = null }: {
   open: boolean
   onClose: () => void
   roomId?: string | null
   initialMethod?: AddMethod
   defaults?: GeneratorDefaults
   onSaved: (count: number) => void
+  /** Open straight into reviewing the drafts of a finished AI generation. */
+  reviewJobId?: string | null
 }) {
   const { toast } = useFeedback()
+  const teacher = useContext(TeacherContext)
   const [method, setMethod] = useState<AddMethod>(initialMethod)
   const [drafts, setDrafts] = useState<DraftQuestion[]>([])
   const [source, setSource] = useState<'ai' | 'csv' | 'manual'>('manual')
@@ -49,8 +55,24 @@ export function AddQuestions({ open, onClose, roomId, initialMethod = 'ai', defa
   const [saving, setSaving] = useState(false)
   const [skipped, setSkipped] = useState<string[]>([])
   const [plan, setPlan] = useState<GenerationPlan | null>(null)
+  // The AI generation these drafts came from; marked as saved once they are.
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [loadingReview, setLoadingReview] = useState(false)
 
-  useEffect(() => { if (open) { setMethod(initialMethod); setDrafts([]); setSkipped([]); setPlan(null) } }, [open, initialMethod])
+  useEffect(() => {
+    if (!open) return
+    setMethod(initialMethod); setDrafts([]); setSkipped([]); setPlan(null); setJobId(null)
+    if (!reviewJobId) return
+    setLoadingReview(true)
+    api<{ job: { status: string; error: string }; questions?: DraftQuestion[]; plan?: GenerationPlan }>(`/api/generation-jobs/${reviewJobId}`)
+      .then(data => {
+        if (!data.questions?.length) { toast(data.job.error || 'These questions are not ready yet.', 'error'); onClose(); return }
+        setDrafts(data.questions.map(q => ({ ...q, set: q.set ?? '' }))); setSource('ai'); setPlan(data.plan ?? null); setJobId(reviewJobId)
+      })
+      .catch(err => { toast(errorMessage(err), 'error'); onClose() })
+      .finally(() => setLoadingReview(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialMethod, reviewJobId])
 
   const reviewing = drafts.length > 0
   const receive = (questions: DraftQuestion[], from: 'ai' | 'csv' | 'manual', errors: string[] = []) => { setDrafts(list => [...list, ...questions]); setSource(from); setSkipped(errors) }
@@ -71,6 +93,7 @@ export function AddQuestions({ open, onClose, roomId, initialMethod = 'ai', defa
           applied = plan.sets.length ? ` Each student now gets one of sets ${plan.sets.join(', ')}.` : " Every paper now uses this Bloom's level plan."
         } catch (err) { toast(`Questions saved, but the room settings were not updated: ${errorMessage(err)}`, 'error') }
       }
+      if (jobId) await api(`/api/generation-jobs/${jobId}`, { method: 'PATCH', body: { action: 'saved' } }).catch(() => {})
       toast(`${data.saved} question${data.saved === 1 ? '' : 's'} added${roomId ? ' to the room' : ' to your bank'}.${applied}`)
       onSaved(data.saved)
       onClose()
@@ -78,7 +101,7 @@ export function AddQuestions({ open, onClose, roomId, initialMethod = 'ai', defa
   }
 
   const methods: { value: AddMethod; label: string; icon: React.ComponentType<{ className?: string }>; hint: string }[] = [
-    { value: 'ai', label: 'Generate with AI', icon: Sparkles, hint: 'From a PDF, notes or a topic' },
+    { value: 'ai', label: 'Generate with AI', icon: Sparkles, hint: 'From PDFs, Word/LaTeX files, notes or a topic' },
     { value: 'csv', label: 'Upload CSV', icon: FileUp, hint: 'Import a spreadsheet' },
     { value: 'manual', label: 'Write manually', icon: PenLine, hint: 'MCQ or coding problem' },
     ...(roomId ? [{ value: 'bank' as const, label: 'From question bank', icon: BookOpen, hint: 'Reuse earlier questions' }] : []),
@@ -100,7 +123,9 @@ export function AddQuestions({ open, onClose, roomId, initialMethod = 'ai', defa
             </div>
           </div>
         ) : undefined}>
-        {reviewing ? (
+        {loadingReview ? (
+          <div className="flex items-center justify-center py-16"><Spinner className="size-6" /></div>
+        ) : reviewing ? (
           <div>
             <button onClick={() => { setDrafts([]); setSkipped([]) }} className="mb-3 inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" />Start over</button>
             {skipped.length > 0 && (
@@ -141,7 +166,9 @@ export function AddQuestions({ open, onClose, roomId, initialMethod = 'ai', defa
               ))}
             </nav>
             <div className="min-w-0">
-              {method === 'ai' && <AiGenerator defaults={defaults} inRoom={Boolean(roomId)} onResult={(questions, next) => { receive(questions, 'ai'); setPlan(next) }} />}
+              {method === 'ai' && <AiGenerator defaults={defaults} roomId={roomId ?? null}
+                onResult={(questions, next, id) => { receive(questions, 'ai'); setPlan(next); setJobId(id) }}
+                email={teacher?.email ?? 'your email'} onClose={onClose} />}
               {method === 'csv' && <CsvImport onResult={(questions, errors) => receive(questions, 'csv', errors)} />}
               {method === 'manual' && (
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -176,21 +203,42 @@ function levelSummary(questions: DraftQuestion[]) {
 
 type BloomMode = 'mixed' | 'custom' | BloomLevel
 
-function AiGenerator({ defaults, inRoom, onResult }: { defaults?: GeneratorDefaults; inRoom: boolean; onResult: (questions: DraftQuestion[], plan: GenerationPlan) => void }) {
+// Keep in sync with lib/source-files.ts.
+const SOURCE_EXTENSIONS = ['.pdf', '.doc', '.docx', '.tex']
+const MAX_FILES = 10
+const MAX_FILES_BYTES = 4 * 1024 * 1024
+
+// Keep in sync with lib/generation-jobs.ts.
+const MAX_SETS = 20
+const MAX_TOTAL_MCQ = 1000
+const MAX_TOTAL_CODING = 100
+
+function AiGenerator({ defaults, roomId, onResult, email, onClose }: {
+  defaults?: GeneratorDefaults
+  roomId: string | null
+  onResult: (questions: DraftQuestion[], plan: GenerationPlan, jobId: string) => void
+  email: string
+  onClose: () => void
+}) {
+  const inRoom = Boolean(roomId)
   const { confirm } = useFeedback()
   const [mode, setMode] = useState<'pdf' | 'text' | 'topic'>('pdf')
-  const [pdf, setPdf] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [text, setText] = useState('')
   const [topic, setTopic] = useState('')
   const [description, setDescription] = useState('')
   const [mcqCount, setMcqCount] = useState(String(Math.min(defaults?.mcq || 10, 120)))
-  const [codingCount, setCodingCount] = useState(String(Math.min(defaults?.coding ?? 0, 12)))
+  const [codingCount, setCodingCount] = useState(String(Math.min(defaults?.coding ?? 0, MAX_TOTAL_CODING)))
   const [bloomMode, setBloomMode] = useState<BloomMode>(defaults?.bloomPlan?.length ? 'custom' : 'mixed')
   const [draft, setDraft] = useState<PlanDraft>(() => defaults?.bloomPlan?.length ? planToDraft(defaults.bloomPlan, defaults.marks ?? 1) : emptyPlanDraft(defaults?.marks ?? 1))
   const [useSets, setUseSets] = useState((defaults?.setCount ?? 0) >= 2)
   const [setCountText, setSetCountText] = useState(String(defaults?.setCount && defaults.setCount >= 2 ? defaults.setCount : 3))
   const [applyToRoom, setApplyToRoom] = useState(true)
-  const [loading, setLoading] = useState(false)
+  const [starting, setStarting] = useState(false)
+  // The running generation and what it was asked for (drives the progress screen).
+  const [running, setRunning] = useState<{ jobId: string; request: GenerationRequest } | null>(null)
+  // Handed to the server: nothing more to do here.
+  const [inBackground, setInBackground] = useState(false)
   const [error, setError] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -206,10 +254,25 @@ function AiGenerator({ defaults, inRoom, onResult }: { defaults?: GeneratorDefau
   const totalCoding = perSetCoding * Math.max(1, sets)
   const letters = setNames(sets)
   const canApply = inRoom && (useSets || custom)
+  const filesSize = files.reduce((sum, file) => sum + file.size, 0)
+
+  function addFiles(list: FileList | null) {
+    if (!list) return
+    setError('')
+    const next = [...files]
+    for (const file of Array.from(list)) {
+      if (!SOURCE_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext))) { setError(`${file.name}: only PDF, Word (.doc, .docx) and LaTeX (.tex) files are supported.`); continue }
+      if (next.some(f => f.name === file.name && f.size === file.size)) continue
+      next.push(file)
+    }
+    if (next.length > MAX_FILES) return setError(`Upload at most ${MAX_FILES} files at a time.`)
+    if (next.reduce((sum, file) => sum + file.size, 0) > MAX_FILES_BYTES) return setError('The files add up to more than 4 MB. Remove some or compress them first.')
+    setFiles(next)
+  }
 
   async function generate() {
     setError('')
-    if (mode === 'pdf' && !pdf) return setError('Choose a PDF first.')
+    if (mode === 'pdf' && !files.length) return setError('Choose at least one file first.')
     if (mode === 'text' && text.trim().length < 50) return setError('Paste at least a paragraph of content.')
     if (mode === 'topic' && !topic.trim() && !description.trim()) return setError('Enter a topic or instructions.')
     if (perSetMcq + perSetCoding === 0) return setError('Ask for at least one question.')
@@ -221,58 +284,92 @@ function AiGenerator({ defaults, inRoom, onResult }: { defaults?: GeneratorDefau
       confirmLabel: 'Continue',
       cancelLabel: 'Review plan',
     }))) return
-    if (useSets && (sets < 2 || sets > 10)) return setError('Choose between 2 and 10 sets.')
-    if (totalMcq > 120) return setError(`That is ${totalMcq} MCQs in total; generate at most 120 at a time.`)
-    if (totalCoding > 12) return setError(`That is ${totalCoding} coding problems in total; generate at most 12 at a time.`)
-    setLoading(true)
+    if (useSets && (sets < 2 || sets > MAX_SETS)) return setError(`Choose between 2 and ${MAX_SETS} sets.`)
+    if (totalMcq > MAX_TOTAL_MCQ) return setError(`That is ${totalMcq} MCQs in total; generate at most ${MAX_TOTAL_MCQ} at a time (fewer sets or fewer questions per set).`)
+    if (totalCoding > MAX_TOTAL_CODING) return setError(`That is ${totalCoding} coding problems in total; generate at most ${MAX_TOTAL_CODING} at a time (fewer sets or fewer problems per set).`)
+    setStarting(true)
     try {
+      // The server splits the request into parts and keeps it, so it can also finish in the background.
       const form = new FormData()
       form.append('topic', topic)
       form.append('description', description)
-      form.append('mcqCount', String(perSetMcq))
       form.append('codingCount', String(perSetCoding))
       form.append('sets', String(useSets ? sets : 1))
       if (bloomMode === 'mixed' || custom) {
         form.append('bloomMode', 'custom')
         BLOOM_LEVELS.forEach((level, i) => form.append(level, String(levels[i])))
-      } else form.append('bloomMode', bloomMode)
+      } else {
+        form.append('bloomMode', bloomMode)
+        form.append('mcqCount', String(perSetMcq))
+      }
       if (mode === 'text') form.append('sourceText', text)
-      if (mode === 'pdf' && pdf) form.append('pdf', pdf)
-      const data = await api<{ questions: DraftQuestion[]; sets: string[] }>('/api/generate-questions', { body: form })
-      onResult(data.questions.map(q => ({ ...q, set: q.set ?? '' })), {
-        sets: data.sets,
-        mcqPerSet: perSetMcq,
-        codingPerSet: perSetCoding,
-        bloomPlan: custom ? draftToPlan(draft) : null,
-        applyToRoom: canApply && applyToRoom,
+      if (mode === 'pdf') files.forEach(file => form.append('files', file))
+      if (roomId) form.append('room', roomId)
+      if (custom) form.append('bloomPlan', JSON.stringify(draftToPlan(draft)))
+      form.append('applyToRoom', String(canApply && applyToRoom))
+      const { job } = await api<{ job: { id: string } }>('/api/generation-jobs', { body: form })
+      setRunning({
+        jobId: job.id,
+        request: {
+          levels: levels.map(n => n * Math.max(1, sets)), coding: totalCoding, sets: useSets ? letters : [],
+          sources: mode === 'pdf' ? files.map(f => f.name) : mode === 'text' ? ['your notes'] : [], topic: topic.trim() || description.trim(),
+        },
       })
-    } catch (err) { setError(errorMessage(err)) } finally { setLoading(false) }
+    } catch (err) { setError(errorMessage(err)) } finally { setStarting(false) }
   }
 
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
-      <Spinner className="size-7" />
-      <p className="mt-4 text-sm font-medium">Generating {totalMcq + totalCoding} questions{useSets ? ` in ${sets} sets` : ''}…</p>
-      <p className="mt-1 text-xs text-muted-foreground">This usually takes {totalMcq > 40 ? '30–90' : '10–40'} seconds{mode === 'pdf' ? ' for a PDF' : ''}.</p>
+  if (inBackground) return (
+    <div className="flex animate-float-in flex-col items-center px-4 py-10 text-center">
+      <span className="flex size-12 items-center justify-center rounded-full bg-success-soft text-success"><Mail className="size-5" /></span>
+      <p className="mt-4 text-base font-semibold">Generating in the background</p>
+      <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+        <b className="font-semibold text-foreground">You can safely close this tab or window.</b> We&apos;re working on your questions on our side and will email <b className="font-semibold text-foreground">{email}</b> as soon as they&apos;re ready. Then review them and add them {roomId ? 'to the room' : 'to your question bank'}.
+      </p>
+      <p className="mt-2 text-xs text-muted-foreground">You can also check progress any time under AI generations.</p>
+      <div className="mt-5 flex flex-wrap justify-center gap-2">
+        <Link href="/teacher/generations" className={buttonVariants({ variant: 'outline' })}><Sparkles />View AI generations</Link>
+        <Button onClick={onClose}>Done</Button>
+      </div>
     </div>
+  )
+
+  if (running) return (
+    <GenerationProgress jobId={running.jobId} request={running.request}
+      onReady={(questions, plan) => { setRunning(null); onResult(questions, plan, running.jobId) }}
+      onBackground={() => { setRunning(null); setInBackground(true) }}
+      onStop={message => { setRunning(null); setError(message) }} />
   )
 
   return (
     <div className="flex flex-col gap-5">
       {error && <Alert>{error}</Alert>}
       <div className="inline-flex self-start rounded-md border border-border bg-muted p-0.5">
-        {([['pdf', 'Upload PDF'], ['text', 'Paste text'], ['topic', 'Topic only']] as const).map(([value, label]) => (
+        {([['pdf', 'Upload files'], ['text', 'Paste text'], ['topic', 'Topic only']] as const).map(([value, label]) => (
           <button key={value} onClick={() => setMode(value)} className={cn('rounded px-3 py-1.5 text-[13px] font-medium', mode === value ? 'bg-card shadow-xs' : 'text-muted-foreground hover:text-foreground')}>{label}</button>
         ))}
       </div>
       {mode === 'pdf' && (
-        <button type="button" onClick={() => fileInput.current?.click()} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const file = e.dataTransfer.files[0]; if (file?.type === 'application/pdf') setPdf(file) }}
-          className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border-strong bg-muted/40 px-4 py-8 text-center hover:border-primary hover:bg-primary-soft/40">
-          <Upload className="size-5 text-primary" />
-          <span className="mt-2 text-sm font-medium">{pdf ? pdf.name : 'Click or drop a PDF here'}</span>
-          <span className="mt-0.5 text-xs text-muted-foreground">{pdf ? `${(pdf.size / 1024 / 1024).toFixed(1)} MB · click to replace` : 'Lecture notes, a chapter, a syllabus… up to 4 MB'}</span>
-          <input ref={fileInput} type="file" accept="application/pdf" className="sr-only" onChange={e => { const file = e.target.files?.[0]; if (file) { if (file.size > 4 * 1024 * 1024) setError('That PDF is larger than 4 MB. Split it or compress it first.'); else setPdf(file) } e.target.value = '' }} />
-        </button>
+        <div className="flex flex-col gap-2">
+          <button type="button" onClick={() => fileInput.current?.click()} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); addFiles(e.dataTransfer.files) }}
+            className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border-strong bg-muted/40 px-4 py-8 text-center hover:border-primary hover:bg-primary-soft/40">
+            <Upload className="size-5 text-primary" />
+            <span className="mt-2 text-sm font-medium">{files.length ? 'Click or drop to add more files' : 'Click or drop files here'}</span>
+            <span className="mt-0.5 text-xs text-muted-foreground">{files.length ? `${files.length} file${files.length > 1 ? 's' : ''} · ${(filesSize / 1024 / 1024).toFixed(1)} of 4 MB` : 'PDF, Word (.doc, .docx) or LaTeX (.tex): lecture notes, chapters, a syllabus… up to 4 MB in total'}</span>
+            <input ref={fileInput} type="file" multiple accept={SOURCE_EXTENSIONS.join(',')} className="sr-only" onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
+          </button>
+          {files.length > 0 && (
+            <ul className="flex flex-col gap-1">
+              {files.map((file, i) => (
+                <li key={`${file.name}-${file.size}`} className="flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm">
+                  <FileText className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(1)} MB</span>
+                  <button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))} className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-4" /></button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
       {mode === 'text' && <Field label="Content"><Textarea rows={7} value={text} onChange={e => setText(e.target.value)} placeholder="Paste lecture notes, a textbook section or a lesson plan…" /></Field>}
       <Field label={mode === 'topic' ? 'Topic' : 'Topic (optional)'} hint={mode === 'topic' ? 'Be specific, e.g. "Stacks and queues in C" rather than "Data structures".' : 'Helps focus the questions.'}>
@@ -286,7 +383,7 @@ function AiGenerator({ defaults, inRoom, onResult }: { defaults?: GeneratorDefau
         <StepTitle n={1} title="How many questions" />
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label={useSets ? 'MCQs in each set' : 'Number of MCQs'}><Input type="number" min={0} max={120} value={mcqCount} onChange={e => setMcqCount(e.target.value)} /></Field>
-          <Field label={useSets ? 'Coding problems in each set' : 'Coding problems'}><Input type="number" min={0} max={12} value={codingCount} onChange={e => setCodingCount(e.target.value)} /></Field>
+          <Field label={useSets ? 'Coding problems in each set' : 'Coding problems'}><Input type="number" min={0} max={MAX_TOTAL_CODING} value={codingCount} onChange={e => setCodingCount(e.target.value)} /></Field>
         </div>
       </section>
 
@@ -312,11 +409,11 @@ function AiGenerator({ defaults, inRoom, onResult }: { defaults?: GeneratorDefau
         <Checkbox checked={useSets} onChange={e => setUseSets(e.target.checked)} label={<span>Create question sets <span className="text-muted-foreground">(Set A, Set B, … for different students)</span></span>} />
         {useSets && (
           <div className="flex flex-col gap-3 rounded-lg border border-primary-border bg-primary-soft/30 p-4 sm:flex-row sm:items-end sm:gap-5">
-            <Field label="How many sets?" className="w-36"><Input type="number" min={2} max={10} value={setCountText} onChange={e => setSetCountText(e.target.value)} /></Field>
+            <Field label="How many sets?" className="w-36"><Input type="number" min={2} max={MAX_SETS} value={setCountText} onChange={e => setSetCountText(e.target.value)} /></Field>
             <p className="text-[13px] leading-6 text-muted-foreground sm:pb-1.5">
-              {sets >= 2 && sets <= 10
+              {sets >= 2 && sets <= MAX_SETS
                 ? <>Sets <b className="font-semibold text-foreground">{letters.join(', ')}</b>, each with {perSetMcq} MCQs{perSetCoding ? ` + ${perSetCoding} coding` : ''} and the same Bloom&apos;s levels: <b className="font-semibold text-foreground">{totalMcq + totalCoding} questions</b> in total.</>
-                : 'Enter between 2 and 10 sets.'}
+                : `Enter between 2 and ${MAX_SETS} sets.`}
             </p>
           </div>
         )}
@@ -330,7 +427,7 @@ function AiGenerator({ defaults, inRoom, onResult }: { defaults?: GeneratorDefau
       )}
       {totalMcq > 120 && <Alert>That is {totalMcq} MCQs in total; the AI can make at most 120 at a time. Use fewer sets or fewer questions per set.</Alert>}
       {defaults && defaults.mcq > 0 && !useSets && perSetMcq > 0 && perSetMcq <= defaults.mcq && <p className="text-xs text-muted-foreground">Tip: generate more than the {defaults.mcq} each student gets, or create sets, so papers differ between students.</p>}
-      <Button onClick={generate} size="lg" className="self-start"><Wand2 />Generate {totalMcq + totalCoding || ''} questions</Button>
+      <Button onClick={generate} disabled={starting} size="lg" className="self-start">{starting ? <Spinner /> : <Wand2 />}{starting ? 'Starting…' : `Generate ${totalMcq + totalCoding || ''} questions`}</Button>
     </div>
   )
 }

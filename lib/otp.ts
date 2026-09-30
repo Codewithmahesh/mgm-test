@@ -2,6 +2,7 @@ import 'server-only'
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import type { Types } from 'mongoose'
 import { HttpError } from './auth'
+import { renderEmail } from './email-template'
 import { sendMail } from './mail'
 import { PasswordReset } from './models'
 
@@ -24,12 +25,20 @@ export async function sendOtp(account: OtpAccount, user: { _id: Types.ObjectId; 
     { role: account, purpose, account: user._id, otpHash: hash(`${user._id}:${otp}`), attempts: 0, expiresAt: new Date(Date.now() + OTP_MINUTES * 60_000) },
     { upsert: true },
   )
-  const action = purpose === 'activate' ? 'activate your examination portal account' : 'reset your examination portal password'
+  const activating = purpose === 'activate'
   await sendMail({
     to: user.email,
     subject: `${otp} is your MGM exam portal verification code`,
-    text: `Hi${user.name ? ` ${user.name}` : ''},\n\nUse this code to ${action}: ${otp}\n\nIt expires in ${OTP_MINUTES} minutes. If you didn't request it, you can ignore this email.\n\n— Online Examination Portal, MGM's College of Engineering, Nanded`,
-    html: `<div style="font-family:system-ui,sans-serif;max-width:480px;color:#0f172a"><p style="margin:0 0 16px;color:#64748b;font-size:13px">MGM's College of Engineering, Nanded · Online Examination Portal</p><h2 style="margin:0 0 12px">Your verification code</h2><p>Use this code to ${action}:</p><p style="font-size:32px;font-weight:700;letter-spacing:8px;margin:16px 0;font-family:monospace">${otp}</p><p style="color:#64748b;font-size:13px">It expires in ${OTP_MINUTES} minutes. If you didn't request it, you can ignore this email.</p></div>`,
+    ...renderEmail({
+      preview: `Your code is ${otp}. It expires in ${OTP_MINUTES} minutes.`,
+      tag: activating ? 'Account activation' : 'Password reset',
+      heading: activating ? 'Activate your account' : 'Reset your password',
+      greeting: `Hi ${user.name || 'there'},`,
+      paragraphs: [activating ? 'Enter this code on the portal to activate your examination account:' : 'Enter this code on the portal to choose a new password:'],
+      code: otp,
+      callout: { text: `The code expires in ${OTP_MINUTES} minutes and works only once. Never share it with anyone.` },
+      footnote: activating ? "If you didn't try to activate an account, you can ignore this email." : "If you didn't ask to reset your password, ignore this email; your password stays the same.",
+    }),
   })
 }
 

@@ -314,9 +314,15 @@ export async function submitAttempt(attempt: AttemptDoc, { auto = false, reason 
   return attempt
 }
 
-/** Submits the attempt automatically if its time ran out (plus a short grace period for network delay). */
+/**
+ * Submits the attempt automatically if its time ran out (plus a short grace period for network delay),
+ * or if the faculty member has ended the exam: once a room is closed nobody keeps writing, whatever
+ * their personal end time says.
+ */
 export async function submitIfExpired(attempt: AttemptDoc) {
-  if (attempt.status === 'in_progress' && Date.now() > attempt.endsAt.getTime() + GRACE_MS) await submitAttempt(attempt, { auto: true, reason: 'time' })
+  if (attempt.status !== 'in_progress') return attempt
+  if (Date.now() > attempt.endsAt.getTime() + GRACE_MS) await submitAttempt(attempt, { auto: true, reason: 'time' })
+  else if ((await ExamRoom.findById(attempt.room).select('status').lean())?.status === 'closed') await submitAttempt(attempt, { auto: true, reason: 'room_closed' })
   return attempt
 }
 

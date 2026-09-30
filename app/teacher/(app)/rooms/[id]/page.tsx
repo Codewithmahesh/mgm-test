@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { PageLoader } from '@/components/ui/card'
 import { Alert, Field, Input } from '@/components/ui/form'
 import { Dialog, Menu, MenuItem, Tabs, useFeedback } from '@/components/ui/overlay'
-import { api, downloadFile, errorMessage, type BankQuestion, type Room } from '@/lib/api'
+import { api, downloadFile, errorMessage, formatDate, type BankQuestion, type Room } from '@/lib/api'
 import { useLatestRequest } from '@/lib/use-latest'
 
 type Tab = 'overview' | 'questions' | 'participants' | 'leaderboard' | 'settings'
@@ -51,8 +51,18 @@ function RoomView({ id }: { id: string }) {
   async function setStatus(status: Room['status']) {
     if (!room) return
     if (status === 'closed' && !(await confirm({ title: 'End this exam?', description: 'Everyone still writing is submitted immediately and no one else can join.', confirmLabel: 'End exam', tone: 'danger' }))) return
+    // Opening before the scheduled start: students can't start until the start time, so opening early
+    // means starting now.
+    const early = status === 'open' && room.startsAt && new Date(room.startsAt).getTime() > Date.now() + 60_000
+    if (early && !(await confirm({
+      title: 'Open this exam before its scheduled time?',
+      description: <>This exam is scheduled for <b>{formatDate(room.startsAt, true)}</b>{room.autoOpen ? ' and is set to open automatically then' : ''}. Opening it now starts the exam <b>right away</b>: the start time changes to now and students can join and begin immediately.</>,
+      confirmLabel: 'Yes, open now',
+      cancelLabel: 'Keep the schedule',
+      tone: 'danger',
+    }))) return
     try {
-      const data = await api<{ room: Room }>(`/api/rooms/${id}`, { method: 'PATCH', body: { status } })
+      const data = await api<{ room: Room }>(`/api/rooms/${id}`, { method: 'PATCH', body: early ? { status, startsAt: new Date().toISOString() } : { status } })
       setRoom(data.room)
       toast(status === 'open' ? `Room is live. Students can join with ${data.room.code}.` : status === 'closed' ? 'Exam ended. All papers are submitted.' : 'Room moved back to draft.')
     } catch (err) { toast(errorMessage(err), 'error') }

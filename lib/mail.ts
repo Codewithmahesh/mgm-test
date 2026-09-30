@@ -22,6 +22,7 @@ export async function sendMail(mail: Mail) {
   })
   try {
     await transporter.sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, ...mail })
+    console.info(`[mail] sent "${mail.subject}" to ${mail.to}`)
   } catch (error) {
     console.error('[mail] send failed:', error)
     transporter = null

@@ -22,6 +22,7 @@ export type RoomFormValues = {
   negativeMarks: string
   codingMarks: string
   startsAt: string
+  autoOpen: boolean
   showResults: Room['showResults']
   allowedClassrooms: string[]
   requireFullscreen: boolean
@@ -42,7 +43,7 @@ const DEFAULT_INSTRUCTIONS = [
 ].join('\n')
 
 export function emptyRoomValues(): RoomFormValues {
-  return { title: '', description: '', instructions: DEFAULT_INSTRUCTIONS, durationMinutes: '60', questionsPerStudent: '20', codingQuestions: '0', marksPerQuestion: '1', negativeMarks: '0', codingMarks: '10', startsAt: '', showResults: 'after_end', allowedClassrooms: [], requireFullscreen: true, blockCopyPaste: true, maxViolations: '0', requireApproval: true, paperMode: 'random', setCount: '3', bloomMode: 'auto', bloomPlan: emptyPlanDraft() }
+  return { title: '', description: '', instructions: DEFAULT_INSTRUCTIONS, durationMinutes: '60', questionsPerStudent: '20', codingQuestions: '0', marksPerQuestion: '1', negativeMarks: '0', codingMarks: '10', startsAt: '', autoOpen: true, showResults: 'after_end', allowedClassrooms: [], requireFullscreen: true, blockCopyPaste: true, maxViolations: '0', requireApproval: true, paperMode: 'random', setCount: '3', bloomMode: 'auto', bloomPlan: emptyPlanDraft() }
 }
 
 function toLocalInput(value: string | null) {
@@ -56,7 +57,7 @@ export function roomToValues(room: Room): RoomFormValues {
     title: room.title, description: room.description, instructions: room.instructions,
     durationMinutes: String(room.durationMinutes), questionsPerStudent: String(room.questionsPerStudent), codingQuestions: String(room.codingQuestions),
     marksPerQuestion: String(room.marksPerQuestion), negativeMarks: String(room.negativeMarks), codingMarks: String(room.codingMarks),
-    startsAt: toLocalInput(room.startsAt), showResults: room.showResults, allowedClassrooms: room.allowedClassrooms,
+    startsAt: toLocalInput(room.startsAt), autoOpen: room.autoOpen, showResults: room.showResults, allowedClassrooms: room.allowedClassrooms,
     requireFullscreen: room.requireFullscreen, blockCopyPaste: room.blockCopyPaste, maxViolations: String(room.maxViolations), requireApproval: room.requireApproval,
     paperMode: room.paperMode, setCount: String(room.setCount || 3),
     bloomMode: room.bloomPlan.length ? 'plan' : 'auto', bloomPlan: planToDraft(room.bloomPlan, room.marksPerQuestion),
@@ -74,6 +75,7 @@ export function valuesToPayload(values: RoomFormValues) {
     setCount: values.paperMode === 'sets' ? Number(values.setCount) || 0 : 0,
     bloomPlan: bloomMode === 'plan' ? draftToPlan(bloomPlan) : [],
     startsAt: values.startsAt ? new Date(values.startsAt).toISOString() : null,
+    autoOpen: Boolean(values.startsAt) && values.autoOpen,
   }
 }
 
@@ -112,6 +114,8 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
+    if (!values.startsAt) return setError('Choose when the exam starts.')
+    if (values.startsAt !== initial.startsAt && new Date(values.startsAt).getTime() < Date.now() - 60_000) return setError('The start time is in the past. Choose a time from now on.')
     if (mcq + coding === 0) return setError('Each student needs at least one MCQ or coding problem.')
     if (planOver) return setError(`The Bloom levels add up to ${draftCount(values.bloomPlan)} questions but each student gets ${mcq}. Increase the question count or lower a level.`)
     if (values.paperMode === 'sets' && (sets < 2 || sets > 26)) return setError('Choose between 2 and 26 sets, or switch to random papers.')
@@ -205,11 +209,19 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
         </Card>
 
         <Card>
+          <CardHeader title="Schedule" description="When the exam starts, and whether the room opens by itself. We email you when it's scheduled and again 20 minutes before it starts." />
+          <div className="flex flex-col gap-5 p-5">
+            <Field label="Start time" required htmlFor="startsAt" hint="Students can't start before this, even if the room is open." className="max-w-xs">
+              <Input id="startsAt" type="datetime-local" required min={values.startsAt !== initial.startsAt ? toLocalInput(new Date().toISOString()) : undefined} value={values.startsAt} onChange={text('startsAt')} />
+            </Field>
+            <Toggle checked={Boolean(values.startsAt) && values.autoOpen} disabled={!values.startsAt} onChange={value => set('autoOpen', value)} title="Open the room automatically at the start time"
+              text={!values.startsAt ? 'Set a start time above to use this.' : values.autoOpen ? "The room opens for students by itself at the start time. If it isn't ready (for example, too few questions), we email you instead." : "You'll open the room yourself; the 20-minute reminder email will ask you to."} />
+          </div>
+        </Card>
+
+        <Card>
           <CardHeader title="Access and results" />
           <div className="flex flex-col gap-5 p-5">
-            <Field label="Start time" htmlFor="startsAt" hint="Optional. Students can't start before this, even if the room is open." className="max-w-xs">
-              <Input id="startsAt" type="datetime-local" value={values.startsAt} onChange={text('startsAt')} />
-            </Field>
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -355,11 +367,11 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
   )
 }
 
-function Toggle({ checked, onChange, title, text }: { checked: boolean; onChange: (value: boolean) => void; title: string; text: string }) {
+function Toggle({ checked, onChange, title, text, disabled = false }: { checked: boolean; onChange: (value: boolean) => void; title: string; text: string; disabled?: boolean }) {
   return (
-    <label className="flex cursor-pointer items-start justify-between gap-4">
+    <label className={cn('flex items-start justify-between gap-4', disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')}>
       <span><span className="block text-[13px] font-medium">{title}</span><span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{text}</span></span>
-      <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className={cn('relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors', checked ? 'bg-primary' : 'bg-border-strong')}>
+      <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)} className={cn('relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors', checked ? 'bg-primary' : 'bg-border-strong')}>
         <span className={cn('inline-block size-4 rounded-full bg-white shadow transition-transform', checked ? 'translate-x-4.5' : 'translate-x-0.5')} />
       </button>
     </label>

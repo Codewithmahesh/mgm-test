@@ -20,7 +20,7 @@ type Item =
   | { index: number; questionId: string; type: 'removed'; text: string }
 
 type Detail = {
-  room: { id: string; title: string; code: string; marksPerQuestion: number; negativeMarks: number; maxViolations: number }
+  room: { id: string; title: string; code: string; status: string; marksPerQuestion: number; negativeMarks: number; maxViolations: number }
   integrity: { flags: Flags; violations: number; score: number; level: RiskLevel; events: { type: IntegrityEvent; at: string; detail: string }[]; ipAddresses: string[]; userAgent: string }
   attempt: { id: string; studentName: string; studentEmail: string; rollNumber: string; prn: string; className: string; set: string; status: 'in_progress' | 'submitted'; autoSubmitted: boolean; autoSubmitReason: string; startedAt: string; submittedAt: string | null; tabSwitches: number; mcqScore: number; codingScore: number; codingPending: number; correctCount: number; wrongCount: number; score: number; maxScore: number }
   items: Item[]
@@ -78,7 +78,7 @@ export default function AttemptReviewPage({ params }: { params: Promise<{ id: st
             <p className="mt-1 text-[13px] text-muted-foreground">{[attempt.set && `Set ${attempt.set}`, attempt.rollNumber && `Roll ${attempt.rollNumber}`, attempt.prn && `PRN ${attempt.prn}`, attempt.className, attempt.studentEmail].filter(Boolean).join(' · ')}</p>
           </div>
           <div className="flex gap-2">
-            {attempt.status === 'submitted' && <Button variant="outline" onClick={() => setReopenOpen(true)}><PlayCircle />Allow to continue</Button>}
+            {attempt.status === 'submitted' && data.room.status !== 'closed' && <Button variant="outline" onClick={() => setReopenOpen(true)}><PlayCircle />Allow to continue</Button>}
             {coding.length > 0 && <Button onClick={save} disabled={!dirty || saving}><Save />{saving ? 'Saving…' : 'Save marks'}</Button>}
           </div>
         </div>

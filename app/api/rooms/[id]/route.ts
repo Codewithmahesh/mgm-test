@@ -3,8 +3,8 @@ import { HttpError, handler, readJson, requireTeacher } from '@/lib/auth'
 import { refreshPool, submitAttempt } from '@/lib/exams'
 import { Attempt, JoinRequest, Question, isObjectId } from '@/lib/models'
 import { copyOf, serializeQuestion } from '@/lib/questions'
-import { poolProblems, type PaperConfig } from '@/lib/paper-rules'
-import { assertPaperSettings, findTeacherRoom, roomSettings, withRoomStats } from '@/lib/rooms'
+import { assertPaperSettings, findTeacherRoom, openProblem, roomSettings, withRoomStats } from '@/lib/rooms'
+import { notifyExamEnded, notifyRoomDeleted, notifyScheduled } from '@/lib/schedule'
 
 type Context = { params: Promise<{ id: string }> }
 
@@ -31,25 +31,31 @@ export const PATCH = handler(async (request: Request, context: Context) => {
   assertPaperSettings({ ...room.toObject(), ...settings } as Parameters<typeof assertPaperSettings>[0])
 
   if ((settings.status ?? room.status) === 'open') {
-    const pool = (await Question.find({ room: room._id }).select('type bloom setLabel').lean()).map(q => ({ type: q.type, bloom: q.bloom, set: q.setLabel }))
-    const config = { ...room.toObject(), ...settings } as PaperConfig
-    const wantMcq = Number(config.questionsPerStudent)
-    const wantCoding = Number(config.codingQuestions ?? 0)
-    if (!pool.length) throw new HttpError(400, 'Add questions before opening the room.')
-    const problems = poolProblems(config, pool)
-    if (problems.length) throw new HttpError(400, `${problems[0]} Add more questions or change the paper settings.`)
-    if (wantMcq + wantCoding === 0) throw new HttpError(400, 'Set how many MCQs or coding problems each student gets.')
+    const problem = await openProblem({ ...room.toObject(), ...settings } as Parameters<typeof openProblem>[0])
+    if (problem) throw new HttpError(400, problem)
   }
+  const ending = settings.status === 'closed' && room.status !== 'closed'
   if (settings.status === 'closed') room.endedAt = new Date()
   if (settings.status === 'open') room.endedAt = undefined
+  const before = room.startsAt?.getTime() ?? null
+  const startChanged = 'startsAt' in settings && ((settings.startsAt as Date | null)?.getTime() ?? null) !== before
+  if (startChanged && (settings.startsAt as Date).getTime() < Date.now() - 60_000) throw new HttpError(400, 'The start time is in the past. Choose a time from now on.')
+  // A new time (or turning auto-open on or off) starts the reminder and auto-open bookkeeping afresh.
+  if (startChanged || ('autoOpen' in settings && settings.autoOpen !== room.autoOpen)) { room.reminderSentAt = null; room.autoOpenFailedAt = null }
   room.set(settings)
   await room.save()
+  if (startChanged && room.startsAt && room.status === 'draft') await notifyScheduled(room.toObject(), teacher, before !== null)
 
   if (settings.status === 'closed') {
     const open = await Attempt.find({ room: room._id, status: 'in_progress' })
     for (const attempt of open) await submitAttempt(attempt, { auto: true, reason: 'room_closed' })
+    if (ending) {
+      const [stats] = await withRoomStats([room.toObject()])
+      await notifyExamEnded(room, teacher, stats, open.length)
+    }
   }
   const extend = Number(body.extendMinutes)
+  if (Number.isFinite(extend) && extend > 0 && room.status === 'closed') throw new HttpError(409, 'This exam has ended, so time can no longer be extended.')
   if (Number.isFinite(extend) && extend > 0 && extend <= 180) {
     await Attempt.updateMany({ room: room._id, status: 'in_progress' }, [{ $set: { endsAt: { $add: ['$endsAt', extend * 60_000] } } }], { updatePipeline: true })
   }
@@ -75,7 +81,8 @@ export const POST = handler(async (request: Request, context: Context) => {
 export const DELETE = handler(async (_request: Request, context: Context) => {
   const teacher = await requireTeacher()
   const room = await findTeacherRoom(teacher._id, (await context.params).id)
-  await Promise.all([Question.updateMany({ room: room._id }, { $set: { room: null } }), Attempt.deleteMany({ room: room._id }), JoinRequest.deleteMany({ room: room._id })])
+  const [questions, attempts] = await Promise.all([Question.updateMany({ room: room._id }, { $set: { room: null } }), Attempt.deleteMany({ room: room._id }), JoinRequest.deleteMany({ room: room._id })])
   await room.deleteOne()
+  await notifyRoomDeleted(room, teacher, { attempts: attempts.deletedCount, questions: questions.modifiedCount })
   return NextResponse.json({ ok: true })
 })

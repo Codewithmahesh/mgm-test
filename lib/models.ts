@@ -132,6 +132,12 @@ const examRoomSchema = new Schema(
     codingMarks: { type: Number, default: 10, min: 0 },
     durationMinutes: { type: Number, required: true, min: 1 },
     startsAt: { type: Date, default: null },
+    // Open the room by itself at startsAt (see lib/schedule.ts).
+    autoOpen: { type: Boolean, default: false },
+    // Scheduler bookkeeping, cleared whenever the start time changes: when the 20-minute reminder went
+    // out, and when the faculty member was told the room couldn't open by itself.
+    reminderSentAt: { type: Date, default: null },
+    autoOpenFailedAt: { type: Date, default: null },
     status: { type: String, enum: ROOM_STATUSES, default: 'draft' },
     showResults: { type: String, enum: RESULT_VISIBILITY, default: 'after_end' },
     // Empty = any activated student with the code can join.
@@ -158,6 +164,7 @@ const examRoomSchema = new Schema(
   { timestamps: true },
 )
 examRoomSchema.index({ teacher: 1, createdAt: -1 })
+examRoomSchema.index({ status: 1, startsAt: 1 })
 
 const integrityEventSchema = new Schema({ type: String, at: { type: Date, default: Date.now }, detail: { type: String, default: '' } }, { _id: false })
 
@@ -242,6 +249,64 @@ const passwordResetSchema = new Schema({
   expiresAt: { type: Date, required: true, index: { expires: 0 } },
 })
 
+export const GENERATION_STATUSES = ['running', 'ready', 'failed', 'saved', 'cancelled'] as const
+export const PART_STATUSES = ['pending', 'running', 'done', 'failed'] as const
+
+// One AI call within a generation job (see lib/generation-jobs.ts).
+const generationPartSchema = new Schema({
+  index: { type: Number, required: true },
+  levels: { type: [Number], default: [] },
+  coding: { type: Number, default: 0 },
+  status: { type: String, enum: PART_STATUSES, default: 'pending' },
+  attempts: { type: Number, default: 0 },
+  // Whoever is running the part; a stale claim is taken over.
+  claim: { type: String, default: '' },
+  claimedAt: { type: Date, default: null },
+  // After a busy / failed call, not before this time.
+  retryAt: { type: Date, default: null },
+  error: { type: String, default: '' },
+  questions: { type: [Schema.Types.Mixed], default: [] },
+}, { _id: false })
+
+// An AI question-generation request: split into parts, run while the faculty member watches or in the
+// background, and kept (as drafts) until they review and save it.
+const generationJobSchema = new Schema(
+  {
+    teacher: { type: Schema.Types.ObjectId, ref: 'Teacher', required: true },
+    room: { type: Schema.Types.ObjectId, ref: 'ExamRoom', default: null },
+    title: { type: String, default: '' },
+    status: { type: String, enum: GENERATION_STATUSES, default: 'running' },
+    // Run by the server without the faculty member waiting; email them when it finishes.
+    background: { type: Boolean, default: false },
+    input: {
+      topic: { type: String, default: '' },
+      description: { type: String, default: '' },
+      sourceText: { type: String, default: '' },
+      singleLevel: { type: String, default: null },
+      sets: { type: Number, default: 1 },
+    },
+    // Deleted once the job finishes.
+    files: { type: [{ name: String, data: Buffer, _id: false }], default: [] },
+    parts: { type: [generationPartSchema], default: [] },
+    // What was asked for (GenerationPlan in components/add-questions.tsx), applied to the room on save.
+    plan: { type: Schema.Types.Mixed, default: null },
+    requested: { mcq: { type: Number, default: 0 }, coding: { type: Number, default: 0 } },
+    // Review-ready drafts, labelled with their sets.
+    result: { type: [Schema.Types.Mixed], default: [] },
+    resultCount: { type: Number, default: 0 },
+    error: { type: String, default: '' },
+    // The browser driving a foreground job checks in here; when it goes quiet the server takes over.
+    lastSeenAt: { type: Date, default: Date.now },
+    finishedAt: { type: Date, default: null },
+    // When the faculty member was emailed that it finished.
+    notifiedAt: { type: Date, default: null },
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 30 * 24 * 60 * 60_000), index: { expires: 0 } },
+  },
+  { timestamps: true },
+)
+generationJobSchema.index({ teacher: 1, createdAt: -1 })
+generationJobSchema.index({ status: 1, background: 1 })
+
 const rateLimitSchema = new Schema({
   _id: { type: String },
   count: { type: Number, default: 0 },
@@ -263,6 +328,7 @@ export const Attempt = model('Attempt', attemptSchema)
 export const PasswordReset = model('PasswordReset', passwordResetSchema)
 export const JoinRequest = model('JoinRequest', joinRequestSchema)
 export const RateLimit = model('RateLimit', rateLimitSchema)
+export const GenerationJob = model('GenerationJob', generationJobSchema)
 
 export type QuestionDoc = InferSchemaType<typeof questionSchema> & { _id: Types.ObjectId }
 

@@ -65,4 +65,15 @@ export function splitByShares(count: number, shares: number[] = BLOOM_LEVELS.map
 export const setName = (index: number) => String.fromCharCode(65 + index)
 export const setNames = (count: number) => Array.from({ length: Math.max(0, count) }, (_, i) => setName(i))
 
+/**
+ * Deals questions into sets A, B, C… level by level (Remember first, then Understand, … Create,
+ * then unlabelled), continuing the rotation across levels. Every set ends up with the same number
+ * of questions at each Bloom level (give or take one when the counts don't divide evenly).
+ */
+export function dealIntoSets<T extends { bloom?: BloomLevel | null }>(questions: T[], sets: number) {
+  const order = (q: T) => (q.bloom ? BLOOM_LEVELS.indexOf(q.bloom) : BLOOM_LEVELS.length)
+  const sorted = questions.map((q, i) => ({ q, i })).sort((a, b) => order(a.q) - order(b.q) || a.i - b.i)
+  return sorted.map(({ q }, i) => ({ question: q, set: setName(i % sets) })).sort((a, b) => a.set.localeCompare(b.set))
+}
+
 const round = (value: number) => Math.round(value * 100) / 100

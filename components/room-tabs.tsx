@@ -91,7 +91,7 @@ export function OverviewTab({ room, onGo }: { room: Room; onGo: (tab: 'questions
             <Detail icon={Code2} label="Coding per student" value={room.codingQuestions ? `${room.codingQuestions} × ${room.codingMarks}` : 'None'} />
             <Detail icon={room.paperMode === 'sets' ? Layers : Shuffle} label="Papers" value={room.paperMode === 'sets' ? `${room.setCount} sets (${setNames(room.setCount).join(', ')}), shown after submitting` : 'Random from the pool'} />
             <Detail icon={Scale} label="Bloom's levels" value={room.bloomPlan.length ? room.bloomPlan.map(row => `L${BLOOM_INFO[row.level].n}×${row.count} @${row.marks}`).join(' · ') : 'Balanced automatically'} />
-            <Detail icon={Clock3} label="Starts" value={room.startsAt ? formatDate(room.startsAt, true) : 'When opened'} />
+            <Detail icon={Clock3} label="Starts" value={room.startsAt ? `${formatDate(room.startsAt, true)}${room.autoOpen ? ' · opens automatically' : ''}` : 'When opened'} />
             <Detail icon={Eye} label="Scores shown" value={{ after_end: 'After exam ends', after_submit: 'After submitting', never: 'Never' }[room.showResults]} />
             <Detail icon={ShieldCheck} label="Proctoring" value={[room.requireFullscreen && 'Fullscreen', room.blockCopyPaste && 'No copy/paste', 'Single device'].filter(Boolean).join(' · ')} />
             <Detail icon={ShieldAlert} label="Auto-submit" value={room.maxViolations ? `After ${room.maxViolations} violations` : 'Off (flag only)'} />

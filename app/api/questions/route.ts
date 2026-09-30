@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server'
 import { HttpError, handler, readJson, requireTeacher } from '@/lib/auth'
 import { refreshPool } from '@/lib/exams'
 import { ExamRoom, Question, isObjectId } from '@/lib/models'
+import { notifyQuestionsAdded } from '@/lib/schedule'
 import { normalizeQuestion, serializeQuestion } from '@/lib/questions'
 
-const MAX_PER_REQUEST = 1000
+const MAX_PER_REQUEST = 1200
 
 /** GET /api/questions?room=<id|unassigned>&type=&q=&page= — the teacher's question bank. */
 export const GET = handler(async (request: Request) => {
@@ -54,6 +55,8 @@ export const POST = handler(async (request: Request) => {
 
   const saved = await Question.insertMany(docs)
   if (roomId) await refreshPool(roomId)
+  const coding = docs.filter(q => q.type === 'coding').length
+  await notifyQuestionsAdded(teacher, roomId ? await ExamRoom.findById(roomId).select('-pool').lean() : null, { mcq: docs.length - coding, coding, source })
   return NextResponse.json({ saved: saved.length, errors, questions: saved.map(q => serializeQuestion(q.toObject())) }, { status: 201 })
 })
 

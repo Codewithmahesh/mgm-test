@@ -2,6 +2,7 @@ import 'server-only'
 import { paperMarks } from './bloom'
 import { cleanPlan } from './rooms'
 import { HttpError, type requireStudent } from './auth'
+import { autoOpenIfDue } from './schedule'
 import { Attempt, ExamRoom, JoinRequest, LANGUAGES, Question, Teacher, classLabel, isObjectId } from './models'
 
 type StudentDoc = Awaited<ReturnType<typeof requireStudent>>
@@ -11,8 +12,11 @@ export function normalizeCode(code: string) {
 }
 
 export async function findRoomByCode(code: string) {
-  const room = await ExamRoom.findOne({ code: normalizeCode(code) }).select('-pool').lean()
+  const find = () => ExamRoom.findOne({ code: normalizeCode(code) }).select('-pool').lean()
+  const room = await find()
   if (!room) throw new HttpError(404, 'No exam room has that code. Check it with your faculty.')
+  // Rooms set to auto-open open as soon as a student looks them up, even if no scheduler has run yet.
+  if (await autoOpenIfDue(room)) return (await find()) ?? room
   return room
 }
 

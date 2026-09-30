@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { BookOpen, DoorOpen, LayoutDashboard, Plus, Users } from 'lucide-react'
+import { BookOpen, DoorOpen, LayoutDashboard, Plus, Sparkles, Users } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { TeacherContext, type TeacherInfo as Teacher } from '@/components/role-context'
 import { api } from '@/lib/api'
@@ -10,6 +10,7 @@ const nav = [
   { href: '/teacher', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { href: '/teacher/rooms', label: 'Exam rooms', icon: DoorOpen },
   { href: '/teacher/questions', label: 'Question bank', icon: BookOpen },
+  { href: '/teacher/generations', label: 'AI generations', icon: Sparkles },
   { href: '/teacher/students', label: 'Students', icon: Users },
 ]
 

@@ -48,6 +48,7 @@ export type Room = {
   codingMarks: number
   durationMinutes: number
   startsAt: string | null
+  autoOpen: boolean
   status: RoomStatus
   showResults: 'after_submit' | 'after_end' | 'never'
   allowedClassrooms: string[]

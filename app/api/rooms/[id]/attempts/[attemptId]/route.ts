@@ -25,7 +25,7 @@ async function detail(room: Awaited<ReturnType<typeof load>>['room'], attempt: A
   const byId = new Map(questions.map(q => [String(q._id), q]))
   const marks = new Map(attempt.codingMarks.map(m => [String(m.question), m]))
   return {
-    room: { id: String(room._id), title: room.title, code: room.code, marksPerQuestion: room.marksPerQuestion, negativeMarks: room.negativeMarks ?? 0, codingMarks: room.codingMarks ?? 10, maxViolations: room.maxViolations ?? 0 },
+    room: { id: String(room._id), title: room.title, code: room.code, status: room.status, marksPerQuestion: room.marksPerQuestion, negativeMarks: room.negativeMarks ?? 0, codingMarks: room.codingMarks ?? 10, maxViolations: room.maxViolations ?? 0 },
     integrity: (() => {
       const flags = normalizeFlags(attempt.flags, attempt.tabSwitches)
       return {
@@ -98,6 +98,7 @@ export const PATCH = handler(async (request: Request, context: Context) => {
     return NextResponse.json(await detail(room, attempt))
   }
   if (body.action === 'reopen') {
+    if (room.status === 'closed') throw new HttpError(409, 'This exam has ended, so students can no longer be given more time. Reopen the room first if this student really needs to continue.')
     const minutes = Number(body.minutes)
     if (!Number.isFinite(minutes) || minutes < 1 || minutes > 300) throw new HttpError(400, 'Choose between 1 and 300 minutes.')
     attempt.status = 'in_progress'

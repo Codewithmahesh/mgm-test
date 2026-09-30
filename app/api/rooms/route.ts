@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server'
-import { handler, readJson, requireTeacher } from '@/lib/auth'
+import { HttpError, handler, readJson, requireTeacher } from '@/lib/auth'
 import { refreshPool, uniqueRoomCode } from '@/lib/exams'
 import { ExamRoom, Question, isObjectId } from '@/lib/models'
 import { copyOf, normalizeQuestion } from '@/lib/questions'
 import { assertPaperSettings, roomSettings, withRoomStats } from '@/lib/rooms'
+import { maybeRunScheduleTick, notifyScheduled } from '@/lib/schedule'
 
 export const GET = handler(async () => {
   const teacher = await requireTeacher()
+  // Backstop for hosts without a scheduler, so rooms due to auto-open show up as open.
+  await maybeRunScheduleTick()
   const rooms = await ExamRoom.find({ teacher: teacher._id }).select('-pool').sort({ createdAt: -1 }).lean()
   return NextResponse.json({ rooms: await withRoomStats(rooms) })
 })
@@ -19,6 +22,7 @@ export const POST = handler(async (request: Request) => {
   const teacher = await requireTeacher()
   const body = await readJson(request)
   const settings = roomSettings(body)
+  if ((settings.startsAt as Date).getTime() < Date.now() - 60_000) throw new HttpError(400, 'The start time is in the past. Choose a time from now on.')
   assertPaperSettings(settings as Parameters<typeof assertPaperSettings>[0])
 
   const newQuestions = Array.isArray(body.questions) ? body.questions : []
@@ -39,6 +43,7 @@ export const POST = handler(async (request: Request) => {
     await Question.insertMany(all.map(q => ({ ...q, teacher: teacher._id, room: room._id })))
     await refreshPool(room._id)
   }
+  if (room.startsAt) await notifyScheduled(room.toObject(), teacher, false)
 
   const [serialized] = await withRoomStats([room.toObject()])
   return NextResponse.json({ room: serialized, errors }, { status: 201 })
