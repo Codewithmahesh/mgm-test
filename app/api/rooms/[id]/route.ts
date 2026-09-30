@@ -1,3 +1,4 @@
+import { emailRoomResults } from '@/lib/result-email'
 import { NextResponse } from 'next/server'
 import { HttpError, handler, readJson, requireTeacher } from '@/lib/auth'
 import { refreshPool, submitAttempt } from '@/lib/exams'
@@ -53,6 +54,8 @@ export const PATCH = handler(async (request: Request, context: Context) => {
       const [stats] = await withRoomStats([room.toObject()])
       await notifyExamEnded(room, teacher, stats, open.length)
     }
+    // Results that only show once the exam ends go out to every student now.
+    emailRoomResults(room._id)
   }
   const extend = Number(body.extendMinutes)
   if (Number.isFinite(extend) && extend > 0 && room.status === 'closed') throw new HttpError(409, 'This exam has ended, so time can no longer be extended.')

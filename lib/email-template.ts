@@ -41,7 +41,15 @@ export type EmailContent = {
   button?: { label: string; path: string }
   /** Small print under everything else. */
   footnote?: string
+  /** Big score card at the top (result emails). */
+  score?: { value: string; caption: string; percent: number; label: string }
+  /** Horizontal bar charts, e.g. marks by topic; each row 0–100 %. */
+  bars?: { title: string; rows: { label: string; percent: number; detail: string }[] }[]
+  /** Short highlighted lists, e.g. strong and weak areas. */
+  lists?: { title: string; tone: 'good' | 'bad' | 'info'; items: string[] }[]
 }
+
+const barColor = (percent: number) => (percent >= 75 ? '#2f8a4a' : percent >= 50 ? '#b7791f' : '#c64545')
 
 export function renderEmail(content: EmailContent) {
   const url = appUrl()
@@ -79,6 +87,47 @@ function html(c: EmailContent, url: string, button: { label: string; href: strin
   <h1 style="margin:0 0 18px;font-size:23px;line-height:30px;font-weight:700;color:${C.ink}">${escapeHtml(c.heading)}</h1>
   ${c.greeting ? p(c.greeting) : ''}
   ${c.paragraphs.map(value => p(value)).join('')}
+  ${c.score ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 22px;background:${C.ink};border-radius:14px"><tr><td style="padding:22px 24px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td style="vertical-align:middle">
+        <div style="font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:${C.gold}">Your score</div>
+        <div style="font-size:34px;line-height:40px;font-weight:700;color:#ffffff">${escapeHtml(c.score.value)}</div>
+        <div style="font-size:13px;line-height:20px;color:#bdb6ad">${escapeHtml(c.score.caption)}</div>
+      </td>
+      <td align="right" style="vertical-align:middle">
+        <div style="display:inline-block;width:84px;height:84px;border-radius:42px;background:${barColor(c.score.percent)};text-align:center">
+          <div style="font-size:24px;line-height:84px;font-weight:700;color:#ffffff">${c.score.percent}%</div>
+        </div>
+        <div style="margin-top:6px;font-size:12px;font-weight:600;color:#ffffff;text-align:center">${escapeHtml(c.score.label)}</div>
+      </td>
+    </tr></table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px"><tr>
+      <td style="height:8px;background:#3a3733;border-radius:4px;padding:0"><div style="width:${Math.max(2, c.score.percent)}%;height:8px;background:${barColor(c.score.percent)};border-radius:4px"></div></td>
+    </tr></table>
+  </td></tr></table>` : ''}
+  ${(c.bars ?? []).map(chart => `<div style="margin:0 0 8px;font-size:14px;font-weight:700;color:${C.ink}">${escapeHtml(chart.title)}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;border:1px solid ${C.line};border-radius:12px;border-collapse:separate">
+    ${chart.rows.map((row, i) => `<tr><td style="padding:10px 14px;${i ? `border-top:1px solid ${C.line};` : ''}">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td style="font-size:13px;font-weight:600;color:${C.ink}">${escapeHtml(row.label)}</td>
+        <td align="right" style="font-size:13px;font-weight:700;color:${barColor(row.percent)};white-space:nowrap">${row.percent}%</td>
+      </tr></table>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 4px"><tr>
+        <td style="height:8px;background:${C.page};border-radius:4px;padding:0"><div style="width:${Math.max(2, row.percent)}%;height:8px;background:${barColor(row.percent)};border-radius:4px"></div></td>
+      </tr></table>
+      <div style="font-size:12px;color:${C.muted}">${escapeHtml(row.detail)}</div>
+    </td></tr>`).join('')}
+  </table>`).join('')}
+  ${(c.lists ?? []).map(list => {
+    const t = list.tone === 'good' ? { bg: '#eaf4ea', ink: '#256b3a', bar: '#2f8a4a' } : list.tone === 'bad' ? { bg: '#fbe9e7', ink: '#a33434', bar: '#c64545' } : { bg: C.soft, ink: '#97462b', bar: C.primary }
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px"><tr>
+      <td style="width:4px;background:${t.bar};border-radius:4px 0 0 4px"></td>
+      <td style="background:${t.bg};border-radius:0 8px 8px 0;padding:12px 16px">
+        <div style="font-size:13px;font-weight:700;color:${t.ink};margin-bottom:4px">${escapeHtml(list.title)}</div>
+        ${list.items.map(item => `<div style="font-size:14px;line-height:22px;color:${t.ink}">&bull; ${escapeHtml(item)}</div>`).join('')}
+      </td>
+    </tr></table>`
+  }).join('')}
   ${c.code ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 20px"><tr><td align="center" style="background:${C.soft};border:1px dashed ${C.primary};border-radius:12px;padding:20px">
     <div style="font-family:'SFMono-Regular',Consolas,'Courier New',monospace;font-size:36px;line-height:40px;font-weight:700;letter-spacing:10px;color:${C.ink}">${escapeHtml(c.code)}</div>
   </td></tr></table>` : ''}
@@ -113,6 +162,9 @@ function text(c: EmailContent, button: { label: string; href: string } | null) {
     c.greeting ?? '',
     ...c.paragraphs,
     c.code ? `    ${c.code}` : '',
+    c.score ? `Score: ${c.score.value} (${c.score.percent}%, ${c.score.label}) — ${c.score.caption}` : '',
+    ...(c.bars ?? []).map(chart => `${chart.title}\n${chart.rows.map(r => `- ${r.label}: ${r.percent}% (${r.detail})`).join('\n')}`),
+    ...(c.lists ?? []).map(list => `${list.title}\n${list.items.map(i => `- ${i}`).join('\n')}`),
     c.details?.map(([label, value]) => `${label}: ${value}`).join('\n') ?? '',
     c.callout?.text ?? '',
     button ? `${button.label}: ${button.href}` : '',

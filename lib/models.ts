@@ -212,6 +212,9 @@ const attemptSchema = new Schema(
     userAgent: { type: String, default: '' },
     autoSubmitReason: { type: String, enum: ['', 'time', 'violations', 'faculty', 'room_closed'], default: '' },
     lastSeenAt: Date,
+    // Emails to the student: "answers received" on submitting, and the score with analysis once results are visible.
+    submissionEmailedAt: { type: Date, default: null },
+    resultEmailedAt: { type: Date, default: null },
   },
   { timestamps: true },
 )

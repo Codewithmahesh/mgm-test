@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { buildAnalysis } from '@/lib/analysis'
 import { handler, requireStudent } from '@/lib/auth'
 import { codingAnswer, resultsVisible, submitIfExpired } from '@/lib/exams'
 import { ExamRoom, Question } from '@/lib/models'
@@ -34,7 +35,10 @@ export const GET = handler(async (_request: Request, context: Context) => {
   }
   if (!visible) return NextResponse.json(base)
 
-  const questions = await Question.find({ _id: { $in: attempt.questions } }).select('type text options correctIndex explanation title points imageUrl').lean()
+  const [questions, analysis] = await Promise.all([
+    Question.find({ _id: { $in: attempt.questions } }).select('type text options correctIndex explanation title points imageUrl topic bloom').lean(),
+    buildAnalysis(attempt),
+  ])
   const byId = new Map(questions.map(q => [String(q._id), q]))
   const marks = new Map(attempt.codingMarks.map(m => [String(m.question), m]))
   return NextResponse.json({
@@ -46,6 +50,7 @@ export const GET = handler(async (_request: Request, context: Context) => {
     correctCount: attempt.correctCount,
     wrongCount: attempt.wrongCount ?? 0,
     codingPending: attempt.codingPending ?? 0,
+    analysis,
     items: attempt.questions.map((id, index) => {
       const q = byId.get(String(id))
       const answer = attempt.answers[index]
@@ -54,7 +59,7 @@ export const GET = handler(async (_request: Request, context: Context) => {
         const mark = marks.get(String(id))
         return { number: index + 1, type: 'coding', title: q.title, imageUrl: q.imageUrl ?? '', points: q.points ?? room?.codingMarks ?? 10, answer: codingAnswer(answer), marks: mark?.marks ?? null, feedback: mark?.feedback ?? '' }
       }
-      return { number: index + 1, type: q.type, text: q.text, imageUrl: q.imageUrl ?? '', options: q.options, correctIndex: q.correctIndex, selected: typeof answer === 'number' ? answer : null, explanation: q.explanation ?? '', marks: attempt.questionMarks?.[index] ?? attempt.marksPerQuestion }
+      return { number: index + 1, type: q.type, topic: q.topic ?? '', bloom: q.bloom ?? null, text: q.text, imageUrl: q.imageUrl ?? '', options: q.options, correctIndex: q.correctIndex, selected: typeof answer === 'number' ? answer : null, explanation: q.explanation ?? '', marks: attempt.questionMarks?.[index] ?? attempt.marksPerQuestion }
     }),
   })
 })

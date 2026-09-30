@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { use, useEffect, useState } from 'react'
 import { Check, CheckCircle2, Clock3, Code2, Hourglass, Minus, ShieldAlert, X } from 'lucide-react'
 import { CodeEditor } from '@/components/code-editor'
+import { ResultAnalysisView } from '@/components/result-analysis'
+import type { ResultAnalysis } from '@/lib/analysis-types'
 import { Badge, Card, CardHeader, PageLoader, StatCard } from '@/components/ui/card'
 import { Alert } from '@/components/ui/form'
 import { api, errorMessage, formatDate, formatDuration, languageLabel, letter } from '@/lib/api'
@@ -19,6 +21,7 @@ type Result = {
   status: string; autoSubmitted: boolean; autoSubmitReason?: string; suspended?: boolean; suspendedReason?: string; startedAt: string; submittedAt: string | null; totalQuestions: number; visible: boolean; set?: string
   score?: number; maxScore?: number; mcqScore?: number; codingScore?: number; correctCount?: number; wrongCount?: number; codingPending?: number
   items?: Item[]
+  analysis?: ResultAnalysis
 }
 
 export default function ResultPage({ params }: { params: Promise<{ id: string }> }) {
@@ -72,6 +75,7 @@ export default function ResultPage({ params }: { params: Promise<{ id: string }>
         </Card>
       ) : (
         <>
+          {data.analysis ? <div className="mt-6"><ResultAnalysisView analysis={data.analysis} score={data.score ?? 0} maxScore={data.maxScore ?? 0} /></div> : <>
           <div className="mt-6 grid gap-4 sm:grid-cols-4">
             <Card className="p-4 sm:col-span-1">
               <p className="text-[13px] text-muted-foreground">Score</p>
@@ -82,6 +86,7 @@ export default function ResultPage({ params }: { params: Promise<{ id: string }>
             <StatCard label="Coding marks" value={data.codingScore ?? 0} hint={data.codingPending ? `${data.codingPending} still being graded` : undefined} />
             <StatCard label="Time taken" value={formatDuration(taken)} />
           </div>
+          </>}
           {data.codingPending ? <Alert tone="info" className="mt-4 flex items-center gap-2"><Hourglass className="size-4" />Some coding answers are still being graded, so your score may go up.</Alert> : null}
 
           <Card className="mt-6">
