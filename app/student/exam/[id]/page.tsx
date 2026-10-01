@@ -856,7 +856,7 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
         setActiveTab('results')
         toast('Compilation Error: Fix syntax/compiler errors and try submitting again.', 'error')
         // Save code with 0 marks
-        onChange({ language, code, passedCases: 0, totalCases: samples.length, marks: 0 })
+        onChange({ language, code, passedCases: 0, totalCases: samples.length })
         const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         setSubmittedAt(timeStr)
         return
@@ -864,8 +864,6 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
 
       let passedCount = 0
       let totalCount = samples.length
-      let calculatedMarks = 0
-      const questionPoints = question.points ?? 10
 
       if (data.testResults && Array.isArray(data.testResults)) {
         setTestResults(data.testResults)
@@ -874,10 +872,6 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
         const allPassed = passedCount === totalCount
         setOverallPassed(allPassed)
         
-        // 100% score for all passed, proportional score for partial pass
-        calculatedMarks = totalCount > 0
-          ? (allPassed ? questionPoints : Math.round(((passedCount / totalCount) * questionPoints) * 100) / 100)
-          : 0
 
         setActiveTab('results')
       } else if (data.run) {
@@ -891,27 +885,28 @@ function CodingView({ question, answer, onChange, flagged, onFlag, onPrev, onNex
         code,
         passedCases: passedCount,
         totalCases: totalCount,
-        marks: calculatedMarks,
       }
       onChange(codeAnswerWithScore)
 
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       setSubmittedAt(timeStr)
 
+      // Marks are given when the exam is submitted: the server runs the code again on these samples
+      // and on hidden tests, so the toast only reports the samples.
+      const hiddenNote = 'Final marks also count hidden tests, checked when you submit the exam.'
       if (passedCount === totalCount && totalCount > 0) {
-        toast(`Accepted! All ${totalCount} test cases passed. +${calculatedMarks}/${questionPoints} marks awarded (100%).`, 'success')
+        toast(`All ${totalCount} sample tests passed. ${hiddenNote}`, 'success')
       } else if (passedCount > 0) {
-        const percent = Math.round((passedCount / totalCount) * 100)
-        toast(`Partial: ${passedCount}/${totalCount} test cases passed. +${calculatedMarks}/${questionPoints} marks awarded (${percent}%).`, 'info')
+        toast(`${passedCount}/${totalCount} sample tests passed. ${hiddenNote}`, 'info')
       } else {
-        toast(`0/${totalCount} test cases passed. 0/${questionPoints} marks. You can improve your solution and submit again.`, 'error')
+        toast(`0/${totalCount} sample tests passed. Improve your solution and try again.`, 'error')
       }
     } catch {
       setExecError('Network error while submitting code.')
     } finally {
       setIsSubmitting(false)
     }
-  }, [isRunning, isSubmitting, language, code, question.samples, question.points, onChange, toast])
+  }, [isRunning, isSubmitting, language, code, question.samples, onChange, toast])
 
   // Keyboard shortcut: Ctrl+Enter to Run, Ctrl+Shift+Enter to Submit
   useEffect(() => {

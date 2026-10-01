@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { KeyRound, LayoutDashboard, UserRound } from 'lucide-react'
+import { FlaskConical, KeyRound, LayoutDashboard, UserRound } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { StudentContext } from '@/components/role-context'
 import { PageLoader } from '@/components/ui/card'
@@ -10,6 +10,7 @@ import { api, type StudentRow } from '@/lib/api'
 
 const nav = [
   { href: '/student', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+  { href: '/student/practicals', label: 'Practicals', icon: FlaskConical },
   { href: '/student/profile', label: 'Profile', icon: UserRound },
 ]
 

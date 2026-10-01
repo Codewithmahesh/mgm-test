@@ -4,6 +4,9 @@ import { submitIfExpired } from '@/lib/exams'
 import { claimSession } from '@/lib/proctoring'
 import { findOwnAttempt } from '@/lib/student-exam'
 
+/** Submitting grades the paper, which can run the students' code; give it time. */
+export const maxDuration = 300
+
 type Context = { params: Promise<{ id: string }> }
 
 /**

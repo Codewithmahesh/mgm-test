@@ -6,6 +6,9 @@ import { Attempt, ExamRoom } from '@/lib/models'
 import { assertSession, recordEvent } from '@/lib/proctoring'
 import { findOwnAttempt } from '@/lib/student-exam'
 
+/** Submitting grades the paper, which can run the students' code; give it time. */
+export const maxDuration = 300
+
 type Context = { params: Promise<{ id: string }> }
 
 /**

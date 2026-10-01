@@ -5,6 +5,9 @@ import { codingAnswer, resultsVisible, submitIfExpired } from '@/lib/exams'
 import { ExamRoom, Question } from '@/lib/models'
 import { findOwnAttempt } from '@/lib/student-exam'
 
+/** Submitting grades the paper, which can run the students' code; give it time. */
+export const maxDuration = 300
+
 type Context = { params: Promise<{ id: string }> }
 
 /**

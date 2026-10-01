@@ -2,7 +2,7 @@
  * Code compiler execution configuration, types, and execution engines.
  *
  * Primary backend: Self-hosted Piston Docker container (http://localhost:2000)
- * Fallback: Judge0 CE or Demo Simulation
+ * Fallback: Judge0 CE. If neither answers, running fails (no simulated output)
  */
 
 export const PISTON_URL = process.env.PISTON_API_URL || 'http://127.0.0.1:2000'
@@ -184,20 +184,13 @@ export async function executeCode(langKey: string, code: string, stdin: string):
     try {
       return await executeJudge0(lang.judge0Id, code, stdin)
     } catch {
-      // Judge0 failed, try demo fallback
+      // Judge0 failed too
     }
   }
 
-  // 3. Fallback: Demo mode (simulation for testing without backend)
-  return {
-    stdout: stdin ? stdin.trim() : 'Program executed successfully (Demo mode).',
-    stderr: '',
-    output: stdin ? stdin.trim() : 'Program executed successfully (Demo mode).',
-    code: 0,
-    signal: null,
-    time: '20ms',
-    memory: '1024KB',
-  }
+  // 3. Nothing could run the code. Fail instead of pretending: a made-up output would be graded as the
+  //    student's answer. Grading then leaves the question for the faculty member to mark by hand.
+  throw new Error('No code runner is reachable (Piston and Judge0 both failed).')
 }
 
 export async function executeJudge0(languageId: number, sourceCode: string, stdin: string): Promise<RunResult> {
@@ -242,58 +235,56 @@ export async function executeJudge0(languageId: number, sourceCode: string, stdi
 }
 
 /**
- * Runs code against an array of test cases and returns comprehensive results.
+ * Runs `code` once per test case and compares outputs. The first case runs alone: if the code doesn't
+ * compile, every case fails with that error without running the rest. The others then run `parallel` at a
+ * time. `run` executes one program (defaults to executeCode; the server passes a cached, throttled one).
  */
 export async function evaluateTestCases(
   languageKey: string,
   code: string,
-  testCases: Array<{ input?: string; expectedOutput?: string }>
+  testCases: Array<{ input?: string; expectedOutput?: string }>,
+  run: (langKey: string, code: string, stdin: string) => Promise<RunResult> = executeCode,
+  parallel = 1,
 ): Promise<CompileResponse> {
   const lang = getSupportedLanguage(languageKey)
   if (!lang) {
     throw new Error(`Unsupported language: "${languageKey}".`)
   }
+  if (!testCases.length) return { overallPassed: false, testResults: [], language: lang.key, version: lang.version }
 
-  const testResults: TestResult[] = []
+  const toResult = (i: number, result: RunResult): TestResult => ({
+    testCase: i + 1,
+    passed: normalize(result.stdout) === normalize(testCases[i].expectedOutput ?? ''),
+    input: testCases[i].input ?? '',
+    expected: testCases[i].expectedOutput ?? '',
+    actual: result.stdout.trim() || result.stderr.trim(),
+  })
 
-  for (let i = 0; i < testCases.length; i++) {
-    const tc = testCases[i]
-    const result = await executeCode(lang.key, code, tc.input ?? '')
-
-    // Check for compilation errors
-    if (result.stderr && !result.stdout && result.code !== 0) {
-      const compileErr = result.stderr.trim()
-      for (let j = i; j < testCases.length; j++) {
-        testResults.push({
-          testCase: j + 1,
-          passed: false,
-          input: testCases[j].input ?? '',
-          expected: testCases[j].expectedOutput ?? '',
-          actual: compileErr,
-        })
-      }
-      return {
-        overallPassed: false,
-        testResults,
-        language: lang.key,
-        version: lang.version,
-        compileError: compileErr,
-      }
+  const first = await run(lang.key, code, testCases[0].input ?? '')
+  // Check for compilation errors
+  if (first.stderr && !first.stdout && first.code !== 0) {
+    const compileErr = first.stderr.trim()
+    return {
+      overallPassed: false,
+      testResults: testCases.map((tc, j) => ({ testCase: j + 1, passed: false, input: tc.input ?? '', expected: tc.expectedOutput ?? '', actual: compileErr })),
+      language: lang.key,
+      version: lang.version,
+      compileError: compileErr,
     }
-
-    const actual = normalize(result.stdout)
-    const expected = normalize(tc.expectedOutput ?? '')
-    testResults.push({
-      testCase: i + 1,
-      passed: actual === expected,
-      input: tc.input ?? '',
-      expected: tc.expectedOutput ?? '',
-      actual: result.stdout.trim() || result.stderr.trim(),
-    })
   }
 
+  const testResults: TestResult[] = [toResult(0, first)]
+  let next = 1
+  const worker = async () => {
+    while (next < testCases.length) {
+      const i = next++
+      testResults[i] = toResult(i, await run(lang.key, code, testCases[i].input ?? ''))
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(parallel, testCases.length - 1)) }, worker))
+
   return {
-    overallPassed: testResults.length > 0 && testResults.every(r => r.passed),
+    overallPassed: testResults.every(r => r.passed),
     testResults,
     language: lang.key,
     version: lang.version,

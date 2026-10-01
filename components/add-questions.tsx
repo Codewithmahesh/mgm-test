@@ -482,7 +482,7 @@ function CsvImport({ onResult }: { onResult: (questions: DraftQuestion[], errors
         <ul className="mt-2 flex list-disc flex-col gap-1 pl-4 text-xs text-muted-foreground">
           <li><span className="text-foreground">answer</span> can be a letter (B), a number (2) or the option&apos;s text.</li>
           <li>Optional: <span className="font-mono">type</span> (mcq / tf / coding), <span className="font-mono">topic</span>, <span className="font-mono">bloom</span> (1–6 or remember / understand / apply / analyze / evaluate / create), <span className="font-mono">set</span> (A, B… for question sets), <span className="font-mono">explanation</span>.</li>
-          <li>Coding rows: <span className="font-mono">title, inputFormat, outputFormat, constraints, sampleInput, sampleOutput, points</span>.</li>
+          <li>Coding rows: <span className="font-mono">title, inputFormat, outputFormat, constraints, sampleInput, sampleOutput, points</span>, and optionally <span className="font-mono">hiddenInput, hiddenOutput</span> for a hidden grading test.</li>
         </ul>
       </div>
     </div>

@@ -112,15 +112,16 @@ export async function applyAnswers(attempt: Awaited<ReturnType<typeof findOwnAtt
     if (!question) continue
     if (value === null) { attempt.answers[index] = null; continue }
     if (question.type === 'coding') {
-      const answer = value as { language?: unknown; code?: unknown; passedCases?: unknown; totalCases?: unknown; marks?: unknown }
+      const answer = value as { language?: unknown; code?: unknown; passedCases?: unknown; totalCases?: unknown }
       const language = String(answer?.language ?? '')
       if (typeof answer?.code === 'string' && (LANGUAGES as readonly string[]).includes(language)) {
         attempt.answers[index] = {
           language,
           code: answer.code.slice(0, 50_000),
+          // The student's last test run, shown back in the editor. Marks are never taken from the browser:
+          // the server runs the code itself when grading (gradeAttempt).
           ...(typeof answer.passedCases === 'number' ? { passedCases: Math.max(0, Math.round(answer.passedCases)) } : {}),
           ...(typeof answer.totalCases === 'number' ? { totalCases: Math.max(0, Math.round(answer.totalCases)) } : {}),
-          ...(typeof answer.marks === 'number' ? { marks: Math.max(0, Number(answer.marks)) } : {}),
         }
         continue
       }

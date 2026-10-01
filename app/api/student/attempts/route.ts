@@ -1,13 +1,16 @@
 import { NextResponse } from 'next/server'
 import { handler, requireStudent } from '@/lib/auth'
-import { resultsVisible, submitIfExpired } from '@/lib/exams'
+import { resultsVisible, submitAllIfExpired } from '@/lib/exams'
 import { Attempt, ExamRoom } from '@/lib/models'
+
+/** Submitting grades the paper, which can run the students' code; give it time. */
+export const maxDuration = 300
 
 /** GET /api/student/attempts — the signed-in student's exams, newest first. */
 export const GET = handler(async () => {
   const student = await requireStudent()
   const attempts = await Attempt.find({ $or: [{ student: student._id }, { studentEmail: student.officialEmail }] }).sort({ createdAt: -1 })
-  for (const attempt of attempts) await submitIfExpired(attempt)
+  await submitAllIfExpired(attempts)
   const rooms = new Map((await ExamRoom.find({ _id: { $in: attempts.map(a => a.room) } }).select('title code status showResults').lean()).map(r => [String(r._id), r]))
 
   return NextResponse.json({

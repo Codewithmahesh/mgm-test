@@ -5,6 +5,9 @@ import { Attempt, Question, Student, classLabel, isObjectId } from '@/lib/models
 import { findTeacherRoom } from '@/lib/rooms'
 import { normalizeFlags, riskOf, violationCount } from '@/lib/integrity'
 
+/** Submitting grades the paper, which can run the students' code; give it time. */
+export const maxDuration = 300
+
 type Context = { params: Promise<{ id: string; attemptId: string }> }
 
 async function load(context: Context) {

@@ -15,7 +15,7 @@ export function blankQuestion(type: DraftQuestion['type'] = 'mcq'): DraftQuestio
   return {
     type, text: '', options: type === 'tf' ? ['True', 'False'] : type === 'mcq' ? ['', '', '', ''] : [], correctIndex: type === 'coding' ? null : 0,
     topic: '', bloom: null, set: '', explanation: '', title: '', inputFormat: '', outputFormat: '', constraints: '',
-    samples: type === 'coding' ? [{ input: '', output: '', explanation: '' }] : [], points: null, language: '', starterCode: '', imageUrl: '',
+    samples: type === 'coding' ? [{ input: '', output: '', explanation: '' }] : [], hiddenTests: [], points: null, language: '', starterCode: '', imageUrl: '',
   }
 }
 
@@ -33,16 +33,24 @@ export function validateQuestion(q: DraftQuestion): string | null {
   return null
 }
 
-export function QuestionEditor({ open, initial, onClose, onSave, title }: { open: boolean; initial: DraftQuestion | null; onClose: () => void; onSave: (question: DraftQuestion) => Promise<void> | void; title?: string }) {
-  const [q, setQ] = useState<DraftQuestion>(initial ?? blankQuestion())
+/**
+ * `problemOnly`: edits a standalone coding problem (a practical's experiment or practice problem), so the
+ * exam-only fields (type, marks, image, Bloom level, set) are hidden.
+ */
+export function QuestionEditor({ open, initial, onClose, onSave, title, problemOnly = false, saveLabel }: { open: boolean; initial: DraftQuestion | null; onClose: () => void; onSave: (question: DraftQuestion) => Promise<void> | void; title?: string; problemOnly?: boolean; saveLabel?: string }) {
+  const blank = () => blankQuestion(problemOnly ? 'coding' : 'mcq')
+  const [q, setQ] = useState<DraftQuestion>(initial ?? blank())
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const checkText = useGibberishCheck()
-  useEffect(() => { if (open) { setQ(initial ?? blankQuestion()); setError('') } }, [open, initial])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) { setQ(initial ?? blank()); setError('') } }, [open, initial])
 
   const set = <K extends keyof DraftQuestion>(key: K, value: DraftQuestion[K]) => setQ(current => ({ ...current, [key]: value }))
   const setType = (type: DraftQuestion['type']) => setQ(current => ({ ...blankQuestion(type), text: current.text, topic: current.topic, bloom: current.bloom, set: current.set, explanation: current.explanation, imageUrl: current.imageUrl }))
   const setSample = (index: number, key: keyof Sample, value: string) => set('samples', q.samples.map((s, i) => (i === index ? { ...s, [key]: value } : s)))
+  const hidden = q.hiddenTests ?? []
+  const setHidden = (index: number, key: 'input' | 'output', value: string) => set('hiddenTests', hidden.map((t, i) => (i === index ? { ...t, [key]: value } : t)))
 
   async function save() {
     const problem = validateQuestion(q)
@@ -58,36 +66,41 @@ export function QuestionEditor({ open, initial, onClose, onSave, title }: { open
   }
 
   return (
-    <Dialog open={open} onClose={onClose} size="lg" title={title ?? (initial ? 'Edit question' : 'New question')}
-      footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={save} loading={saving}>{saving ? 'Saving…' : 'Save question'}</Button></>}>
+    <Dialog open={open} onClose={onClose} size={problemOnly ? 'full' : 'lg'} title={title ?? (initial ? 'Edit question' : 'New question')}
+      footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={save} loading={saving}>{saving ? 'Saving…' : saveLabel ?? 'Save question'}</Button></>}>
       <div className="flex flex-col gap-4">
         {error && <Alert>{error}</Alert>}
-        <div className="inline-flex self-start rounded-md border border-border bg-muted p-0.5">
+        {!problemOnly && <div className="inline-flex self-start rounded-md border border-border bg-muted p-0.5">
           {(['mcq', 'tf', 'coding'] as const).map(type => (
             <button key={type} type="button" onClick={() => setType(type)} className={cn('rounded px-3 py-1.5 text-[13px] font-medium', q.type === type ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground')}>
               {type === 'mcq' ? 'Multiple choice' : type === 'tf' ? 'True / False' : 'Coding problem'}
             </button>
           ))}
-        </div>
+        </div>}
 
         {q.type === 'coding' ? (
-          <>
-            <div className="grid gap-4 sm:grid-cols-[1fr_120px]">
+          // A standalone problem gets two columns on wide screens: the statement left, its tests right.
+          <div className={problemOnly ? 'grid gap-6 lg:grid-cols-2' : 'contents'}>
+          <div className="flex flex-col gap-4">
+            <div className={cn('grid gap-4', !problemOnly && 'sm:grid-cols-[1fr_120px]')}>
               <Field label="Problem title" required><Input value={q.title} onChange={e => set('title', e.target.value)} placeholder="e.g. Pair Sum" /></Field>
-              <Field label="Marks" hint="Blank = room default"><Input type="number" min={0} value={q.points ?? ''} onChange={e => set('points', e.target.value ? Number(e.target.value) : null)} /></Field>
+              {!problemOnly && <Field label="Marks" hint="Blank = room default"><Input type="number" min={0} value={q.points ?? ''} onChange={e => set('points', e.target.value ? Number(e.target.value) : null)} /></Field>}
             </div>
-            <Field label="Problem statement" required><Textarea rows={5} value={q.text} onChange={e => set('text', e.target.value)} placeholder="Describe the task clearly…" /></Field>
-            <QuestionImageUpload imageUrl={q.imageUrl} onChange={url => set('imageUrl', url)} />
+            <Field label="Problem statement" required><Textarea rows={problemOnly ? 9 : 5} value={q.text} onChange={e => set('text', e.target.value)} placeholder="Describe the task clearly…" /></Field>
+            {!problemOnly && <QuestionImageUpload imageUrl={q.imageUrl} onChange={url => set('imageUrl', url)} />}
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Input format"><Textarea rows={3} value={q.inputFormat} onChange={e => set('inputFormat', e.target.value)} placeholder="The first line contains N…" /></Field>
               <Field label="Output format"><Textarea rows={3} value={q.outputFormat} onChange={e => set('outputFormat', e.target.value)} placeholder="Print a single integer…" /></Field>
             </div>
             <Field label="Constraints"><Textarea rows={2} className="font-mono text-[13px]" value={q.constraints} onChange={e => set('constraints', e.target.value)} placeholder={'1 ≤ N ≤ 10^5\n1 ≤ A[i] ≤ 10^9'} /></Field>
+            {problemOnly && <Field label="Topic" hint="Used when the AI writes more practice problems like this one."><Input value={q.topic} onChange={e => set('topic', e.target.value)} placeholder="e.g. Linked lists" /></Field>}
+          </div>
+          <div className="flex flex-col gap-5">
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <div>
-                  <span className="text-[13px] font-medium">Test cases / Sample tests</span>
-                  <span className="ml-2 text-xs text-muted-foreground">(Optional)</span>
+                  <span className="text-[13px] font-medium">Sample tests</span>
+                  <span className="ml-2 text-xs text-muted-foreground">(shown to students)</span>
                 </div>
                 <Button variant="ghost" size="xs" type="button" onClick={() => set('samples', [...q.samples, { input: '', output: '', explanation: '' }])}>
                   <Plus className="size-3.5" />Add test case
@@ -120,7 +133,41 @@ export function QuestionEditor({ open, initial, onClose, onSave, title }: { open
                 </div>
               )}
             </div>
-          </>
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <div>
+                  <span className="text-[13px] font-medium">Hidden tests</span>
+                  <span className="ml-2 text-xs text-muted-foreground">(graded, never shown to students)</span>
+                </div>
+                {hidden.length < 10 && (
+                  <Button variant="ghost" size="xs" type="button" onClick={() => set('hiddenTests', [...hidden, { input: '', output: '', explanation: '' }])}>
+                    <Plus className="size-3.5" />Add hidden test
+                  </Button>
+                )}
+              </div>
+              {hidden.length === 0 ? (
+                <p className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">No hidden tests. Without them, code is graded only on the samples students can see, so it could just print those answers. Add edge cases and larger inputs here.</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {hidden.map((test, index) => (
+                    <div key={index} className="rounded-md border border-border p-3">
+                      <div className="mb-2 flex items-center justify-between text-xs font-medium text-muted-foreground">
+                        <span>Hidden test {index + 1}</span>
+                        <button type="button" onClick={() => set('hiddenTests', hidden.filter((_, i) => i !== index))} aria-label="Remove hidden test" className="rounded p-1 hover:bg-muted hover:text-danger">
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Input" hint="stdin"><Textarea rows={3} className="font-mono text-[13px]" value={test.input} onChange={e => setHidden(index, 'input', e.target.value)} placeholder="Input" /></Field>
+                        <Field label="Expected output" hint="stdout"><Textarea rows={3} className="font-mono text-[13px]" value={test.output} onChange={e => setHidden(index, 'output', e.target.value)} placeholder="Expected output" /></Field>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          </div>
         ) : (
           <>
             <Field label="Question" required><Textarea rows={3} value={q.text} onChange={e => set('text', e.target.value)} placeholder="Type the question…" autoFocus /></Field>
@@ -144,7 +191,7 @@ export function QuestionEditor({ open, initial, onClose, onSave, title }: { open
             <Field label="Explanation" hint="Optional. Shown to students in their result review."><Textarea rows={2} value={q.explanation} onChange={e => set('explanation', e.target.value)} /></Field>
           </>
         )}
-        <div className="grid gap-4 sm:grid-cols-[1fr_1fr_120px]">
+        {!problemOnly && <div className="grid gap-4 sm:grid-cols-[1fr_1fr_120px]">
           <Field label="Topic"><Input value={q.topic} onChange={e => set('topic', e.target.value)} placeholder="e.g. Linked lists" /></Field>
           <Field label="Bloom's level">
             <Select value={q.bloom ?? ''} onChange={e => set('bloom', (e.target.value || null) as DraftQuestion['bloom'])}>
@@ -153,7 +200,7 @@ export function QuestionEditor({ open, initial, onClose, onSave, title }: { open
             </Select>
           </Field>
           <Field label="Set" hint="Blank = every set."><Input value={q.set} maxLength={12} onChange={e => set('set', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="e.g. A" /></Field>
-        </div>
+        </div>}
       </div>
     </Dialog>
   )

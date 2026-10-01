@@ -1,22 +1,36 @@
 import { NextResponse } from 'next/server'
+import { HttpError, rateLimit, signedInUser } from '@/lib/auth'
+import { evaluateCode, runCode } from '@/lib/code-runs'
 import {
   MAX_CODE_LENGTH,
   MAX_TEST_CASES,
   getSupportedLanguage,
-  executeCode,
-  evaluateTestCases,
   type CompileResponse,
 } from '@/lib/compiler'
+
+/** Runs per signed-in user per minute; enough for someone testing their code, not for scripting the runner. */
+const RUNS_PER_MINUTE = 20
 
 /**
  * POST /api/compile
  *
- * Runs student code against test cases (or single run) using:
+ * Runs code for a signed-in faculty member or student (rate limited, results cached; see lib/code-runs.ts)
+ * against test cases, or once with custom stdin, using:
  * 1. Self-hosted Piston container (http://localhost:2000)
  * 2. Fallback: Judge0 CE API (if configured)
- * 3. Fallback: Demo Simulation (for UI testing)
+ * If neither can run it, answers 502 instead of simulating an output.
  */
 export async function POST(request: Request) {
+  // Only signed-in faculty and students may run code, and each only so often.
+  const user = await signedInUser()
+  if (!user) return NextResponse.json({ error: 'Please sign in to run code.' }, { status: 401 })
+  try {
+    await rateLimit(`compile:${user.role}:${user.id}`, RUNS_PER_MINUTE, 60)
+  } catch (error) {
+    if (error instanceof HttpError) return NextResponse.json({ error: 'You are running code very often. Wait a minute, then try again.' }, { status: 429 })
+    throw error
+  }
+
   let body: Record<string, unknown>
   try {
     body = await request.json()
@@ -69,11 +83,11 @@ export async function POST(request: Request) {
   // ── Execution ───────────────────────────────────────────────────────────────
   try {
     if (testCases && testCases.length > 0) {
-      const response = await evaluateTestCases(lang.key, code, testCases)
+      const response = await evaluateCode(lang.key, code, testCases)
       return NextResponse.json(response)
     } else {
       // Single execution with optional custom stdin
-      const result = await executeCode(lang.key, code, typeof stdin === 'string' ? stdin : '')
+      const result = await runCode(lang.key, code, typeof stdin === 'string' ? stdin : '')
       const response: CompileResponse = {
         run: result,
         language: lang.key,

@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
 import { handler, requireTeacher } from '@/lib/auth'
-import { isAnswered, submitIfExpired } from '@/lib/exams'
+import { isAnswered, submitAllIfExpired } from '@/lib/exams'
 import { Attempt, Student, classLabel } from '@/lib/models'
 import { findTeacherRoom } from '@/lib/rooms'
 import { INTEGRITY_EVENTS, INTEGRITY_EVENT_TYPES, RISK_META, normalizeFlags, riskOf, violationCount } from '@/lib/integrity'
+
+/** Submitting grades the paper, which can run the students' code; give it time. */
+export const maxDuration = 300
 
 type Context = { params: Promise<{ id: string }> }
 
@@ -16,7 +19,7 @@ export const GET = handler(async (request: Request, context: Context) => {
   const room = await findTeacherRoom(teacher._id, (await context.params).id)
 
   const attempts = await Attempt.find({ room: room._id })
-  for (const attempt of attempts) await submitIfExpired(attempt)
+  await submitAllIfExpired(attempts)
 
   const students = await Student.find({ _id: { $in: attempts.map(a => a.student).filter(Boolean) } }).populate('classroom').select('name rollNumber prn classroom').lean()
   const studentById = new Map(students.map(s => [String(s._id), s]))

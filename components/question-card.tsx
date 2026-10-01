@@ -62,6 +62,7 @@ export function QuestionCard({ question, index, actions, meta, defaultOpen = fal
                   <pre className="overflow-x-auto rounded bg-card p-2 font-mono text-xs ring-1 ring-border"><span className="mb-1 block font-sans text-[10px] font-semibold uppercase text-subtle">Sample output {i + 1}</span>{sample.output}</pre>
                 </div>
               ))}
+              <p className="text-xs text-muted-foreground">{question.hiddenTests?.length ? `+ ${question.hiddenTests.length} hidden test${question.hiddenTests.length === 1 ? '' : 's'} used for grading` : 'No hidden tests: graded on the samples only'}</p>
             </div>
           ) : (
             <>

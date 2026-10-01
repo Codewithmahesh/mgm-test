@@ -99,6 +99,8 @@ const questionSchema = new Schema(
     outputFormat: { type: String, default: '' },
     constraints: { type: String, default: '' },
     samples: { type: [sampleSchema], default: [] },
+    // Extra tests used only for grading; never sent to students (unlike samples, which the statement shows).
+    hiddenTests: { type: [sampleSchema], default: [] },
     points: { type: Number, default: null },
     language: { type: String, default: '' },
     starterCode: { type: String, default: '' },
@@ -316,6 +318,92 @@ const rateLimitSchema = new Schema({
   expiresAt: { type: Date, required: true, index: { expires: 0 } },
 })
 
+// ---- Practicals: a lab subject with experiments students solve in order, plus practice problems ----
+
+// A coding problem as stored on an experiment or a practice problem (same fields as a coding Question).
+const problemFields = {
+  title: { type: String, trim: true, required: true },
+  text: { type: String, required: true },
+  inputFormat: { type: String, default: '' },
+  outputFormat: { type: String, default: '' },
+  constraints: { type: String, default: '' },
+  samples: { type: [sampleSchema], default: [] },
+  hiddenTests: { type: [sampleSchema], default: [] },
+  topic: { type: String, trim: true, default: '' },
+  language: { type: String, default: '' },
+  starterCode: { type: String, default: '' },
+}
+
+const practicalSubjectSchema = new Schema(
+  {
+    teacher: { type: Schema.Types.ObjectId, ref: 'Teacher', required: true, index: true },
+    title: { type: String, required: true, trim: true },
+    // Course code shown next to the title, e.g. "CS301". Optional.
+    code: { type: String, trim: true, uppercase: true, default: '' },
+    description: { type: String, default: '' },
+    // Classes whose students take this practical.
+    classrooms: { type: [Schema.Types.ObjectId], default: [], index: true },
+  },
+  { timestamps: true },
+)
+
+// One level of a practical. Students unlock it by passing every sample test of the one before.
+const experimentSchema = new Schema(
+  {
+    subject: { type: Schema.Types.ObjectId, ref: 'PracticalSubject', required: true },
+    teacher: { type: Schema.Types.ObjectId, ref: 'Teacher', required: true },
+    order: { type: Number, required: true },
+    ...problemFields,
+  },
+  { timestamps: true },
+)
+experimentSchema.index({ subject: 1, order: 1 })
+
+// Extra problems on an experiment's topic: the faculty member's pool, then AI-written ones per student.
+const practiceProblemSchema = new Schema(
+  {
+    experiment: { type: Schema.Types.ObjectId, ref: 'Experiment', required: true },
+    subject: { type: Schema.Types.ObjectId, ref: 'PracticalSubject', required: true },
+    source: { type: String, enum: ['faculty', 'ai'], required: true },
+    // AI problems belong to the student who asked for them; faculty problems are for everyone.
+    student: { type: Schema.Types.ObjectId, ref: 'Student', default: null },
+    ...problemFields,
+  },
+  { timestamps: true },
+)
+practiceProblemSchema.index({ experiment: 1, source: 1, student: 1 })
+
+// Every submission, graded by the server: samples decide "solved", hidden tests are recorded for the faculty.
+const practicalSubmissionSchema = new Schema(
+  {
+    subject: { type: Schema.Types.ObjectId, ref: 'PracticalSubject', required: true },
+    experiment: { type: Schema.Types.ObjectId, ref: 'Experiment', required: true },
+    // null = the experiment itself; otherwise the practice problem.
+    problem: { type: Schema.Types.ObjectId, ref: 'PracticeProblem', default: null },
+    student: { type: Schema.Types.ObjectId, ref: 'Student', required: true },
+    language: { type: String, required: true },
+    code: { type: String, required: true },
+    samplesPassed: { type: Number, default: 0 },
+    samplesTotal: { type: Number, default: 0 },
+    hiddenPassed: { type: Number, default: 0 },
+    hiddenTotal: { type: Number, default: 0 },
+    // Every sample test passed (what unlocks the next experiment).
+    solved: { type: Boolean, default: false },
+    compileError: { type: String, default: '' },
+  },
+  { timestamps: true },
+)
+practicalSubmissionSchema.index({ subject: 1, student: 1, experiment: 1 })
+practicalSubmissionSchema.index({ subject: 1, createdAt: -1 })
+
+// Output of a program for one input, keyed by a hash of (language, code, input), so the same run is never
+// paid for twice: a student's "Run" and the grading at submit, regrades, identical submissions.
+const codeRunSchema = new Schema({
+  _id: { type: String },
+  result: { type: Schema.Types.Mixed, required: true },
+  expiresAt: { type: Date, required: true, index: { expires: 0 } },
+})
+
 function model<T extends Schema>(name: string, schema: T) {
   // In development, hot reload re-runs this file; rebuild the model so schema edits take effect.
   if (process.env.NODE_ENV !== 'production' && mongoose.models[name]) mongoose.deleteModel(name)
@@ -332,6 +420,11 @@ export const PasswordReset = model('PasswordReset', passwordResetSchema)
 export const JoinRequest = model('JoinRequest', joinRequestSchema)
 export const RateLimit = model('RateLimit', rateLimitSchema)
 export const GenerationJob = model('GenerationJob', generationJobSchema)
+export const CodeRun = model('CodeRun', codeRunSchema)
+export const PracticalSubject = model('PracticalSubject', practicalSubjectSchema)
+export const Experiment = model('Experiment', experimentSchema)
+export const PracticeProblem = model('PracticeProblem', practiceProblemSchema)
+export const PracticalSubmission = model('PracticalSubmission', practicalSubmissionSchema)
 
 export type QuestionDoc = InferSchemaType<typeof questionSchema> & { _id: Types.ObjectId }
 

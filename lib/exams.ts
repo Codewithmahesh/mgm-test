@@ -4,7 +4,7 @@ import type { Types } from 'mongoose'
 import { Attempt, ExamRoom, Question } from './models'
 import { BLOOM_LEVELS, type BloomLevel } from './bloom'
 import { activeSets, setPool } from './paper-rules'
-import { evaluateTestCases } from './compiler'
+import { evaluateCode } from './code-runs'
 import { emailAfterSubmit } from './result-email'
 
 type AttemptDoc = NonNullable<Awaited<ReturnType<typeof Attempt.findOne>>>
@@ -191,13 +191,29 @@ export function isAnswered(value: unknown) {
  * proportional for partial), with teacher manual overrides taking precedence.
  */
 export async function gradeAttempt(attempt: AttemptDoc, codingMarksDefault?: number) {
-  const questions = await Question.find({ _id: { $in: attempt.questions } }).select('type correctIndex points samples').lean()
+  const questions = await Question.find({ _id: { $in: attempt.questions } }).select('type correctIndex points samples hiddenTests').lean()
   const byId = new Map(questions.map(q => [String(q._id), q]))
   const marksByQuestion = new Map(attempt.codingMarks.map(mark => [String(mark.question), mark.marks ?? 0]))
   const defaultPoints = codingMarksDefault ?? 10
 
   // Each question's marks were fixed when the paper was dealt (Bloom level marks); older papers use one value.
   const markAt = (index: number) => attempt.questionMarks?.[index] ?? attempt.marksPerQuestion
+
+  // Code the student never ran during the exam is run against the samples here. Start every such run at
+  // once instead of one question after another, so submitting doesn't take the sum of all of them.
+  // Graded on the samples the student saw plus the hidden tests, samples first.
+  type Test = { input?: string | null; output?: string | null }
+  const gradingCases = (q: { samples?: Test[]; hiddenTests?: Test[] }) => [...(q.samples ?? []), ...(q.hiddenTests ?? [])].map(t => ({ input: t.input ?? '', expectedOutput: t.output ?? '' }))
+  const evaluations = new Map<number, ReturnType<typeof evaluateCode>>()
+  attempt.questions.forEach((id, index) => {
+    const question = byId.get(String(id))
+    if (question?.type !== 'coding' || marksByQuestion.has(String(id)) || !gradingCases(question).length) return
+    const ca = codingAnswer(attempt.answers[index])
+    if (!ca?.code?.trim()) return
+    const run = evaluateCode(ca.language || 'cpp', ca.code, gradingCases(question))
+    run.catch(() => {}) // awaited (and its error handled) in the loop below
+    evaluations.set(index, run)
+  })
   let correct = 0
   let wrong = 0
   let mcqScore = 0
@@ -219,36 +235,11 @@ export async function gradeAttempt(attempt: AttemptDoc, codingMarksDefault?: num
       } else {
         const ca = codingAnswer(answer)
         if (ca && ca.code && ca.code.trim()) {
-          if (typeof ca.marks === 'number') {
-            // Evaluated test cases (100% if all passed, proportional if partial)
-            codingScore += ca.marks
-            const existing = attempt.codingMarks.find(m => String(m.question) === String(id))
-            const feedbackText = ca.passedCases != null && ca.totalCases != null
-              ? (ca.passedCases === ca.totalCases ? `All ${ca.totalCases} test cases passed (100%)` : `${ca.passedCases}/${ca.totalCases} test cases passed (${Math.round((ca.passedCases / ca.totalCases) * 100)}%)`)
-              : 'Auto-graded from test cases'
-            if (existing) {
-              existing.marks = ca.marks
-              if (!existing.feedback) existing.feedback = feedbackText
-            } else {
-              attempt.codingMarks.push({ question: id, marks: ca.marks, feedback: feedbackText })
-            }
-          } else if (typeof ca.passedCases === 'number' && typeof ca.totalCases === 'number' && ca.totalCases > 0) {
-            const allPassed = ca.passedCases === ca.totalCases
-            const autoMarks = allPassed ? qPoints : round((ca.passedCases / ca.totalCases) * qPoints)
-            codingScore += autoMarks
-            const existing = attempt.codingMarks.find(m => String(m.question) === String(id))
-            const feedbackText = allPassed ? `All ${ca.totalCases} test cases passed (100%)` : `${ca.passedCases}/${ca.totalCases} test cases passed (${Math.round((ca.passedCases / ca.totalCases) * 100)}%)`
-            if (existing) {
-              existing.marks = autoMarks
-              if (!existing.feedback) existing.feedback = feedbackText
-            } else {
-              attempt.codingMarks.push({ question: id, marks: autoMarks, feedback: feedbackText })
-            }
-          } else if (question.samples && question.samples.length > 0) {
-            // Server-side fallback auto-grading against sample test cases
+          // Always graded here, by running the code on the server. Results the browser reports from the
+          // student's own test runs are only for display: they could be edited, so they never count.
+          if (gradingCases(question).length > 0) {
             try {
-              const testCases = question.samples.map((s: { input?: string; output?: string }) => ({ input: s.input ?? '', expectedOutput: s.output ?? '' }))
-              const evalRes = await evaluateTestCases(ca.language || 'cpp', ca.code, testCases)
+              const evalRes = await (evaluations.get(index) ?? evaluateCode(ca.language || 'cpp', ca.code, gradingCases(question)))
               const totalCount = evalRes.testResults?.length ?? 0
               const passedCount = evalRes.testResults?.filter(r => r.passed).length ?? 0
               const allPassed = passedCount === totalCount && totalCount > 0
@@ -256,8 +247,12 @@ export async function gradeAttempt(attempt: AttemptDoc, codingMarksDefault?: num
               codingScore += autoMarks
 
               const existing = attempt.codingMarks.find(m => String(m.question) === String(id))
+              const sampleCount = question.samples?.length ?? 0
+              const hiddenCount = totalCount - sampleCount
+              const passedSamples = evalRes.testResults?.slice(0, sampleCount).filter(r => r.passed).length ?? 0
+              const split = hiddenCount > 0 ? ` · samples ${passedSamples}/${sampleCount}, hidden ${passedCount - passedSamples}/${hiddenCount}` : ''
               const feedbackText = totalCount > 0
-                ? (allPassed ? `All ${totalCount} test cases passed (100%)` : `${passedCount}/${totalCount} test cases passed (${Math.round((passedCount / totalCount) * 100)}%)`)
+                ? (allPassed ? `All ${totalCount} test cases passed (100%)${split}` : `${passedCount}/${totalCount} test cases passed (${Math.round((passedCount / totalCount) * 100)}%)${split}`)
                 : 'Evaluated'
               if (existing) {
                 existing.marks = autoMarks
@@ -327,6 +322,34 @@ export async function submitIfExpired(attempt: AttemptDoc) {
   if (Date.now() > attempt.endsAt.getTime() + GRACE_MS) await submitAttempt(attempt, { auto: true, reason: 'time' })
   else if ((await ExamRoom.findById(attempt.room).select('status').lean())?.status === 'closed') await submitAttempt(attempt, { auto: true, reason: 'room_closed' })
   return attempt
+}
+
+/** Runs `task` over `items`, at most `limit` at a time. */
+async function eachLimit<T>(items: T[], limit: number, task: (item: T) => Promise<unknown>) {
+  let next = 0
+  const worker = async () => { while (next < items.length) await task(items[next++]) }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+}
+
+/** Grading can run code, so several attempts are submitted side by side rather than one after another. */
+const SUBMIT_PARALLEL = 4
+
+/** Submits many attempts (e.g. when the faculty member ends the exam), a few at a time. */
+export async function submitAttempts(attempts: AttemptDoc[], options: { auto?: boolean; reason?: SubmitReason } = {}) {
+  await eachLimit(attempts, SUBMIT_PARALLEL, attempt => submitAttempt(attempt, options))
+}
+
+/** submitIfExpired for a whole list: each room's status is looked up once and expired attempts are submitted a few at a time. */
+export async function submitAllIfExpired(attempts: AttemptDoc[]) {
+  const due = attempts.filter(attempt => attempt.status === 'in_progress')
+  if (!due.length) return attempts
+  const closed = new Set((await ExamRoom.find({ _id: { $in: [...new Set(due.map(a => String(a.room)))] }, status: 'closed' }).select('_id').lean()).map(room => String(room._id)))
+  const now = Date.now()
+  await eachLimit(due, SUBMIT_PARALLEL, async attempt => {
+    if (now > attempt.endsAt.getTime() + GRACE_MS) await submitAttempt(attempt, { auto: true, reason: 'time' })
+    else if (closed.has(String(attempt.room))) await submitAttempt(attempt, { auto: true, reason: 'room_closed' })
+  })
+  return attempts
 }
 
 export function isAcceptingAnswers(attempt: AttemptDoc) {

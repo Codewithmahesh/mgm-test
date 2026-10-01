@@ -13,7 +13,8 @@ export function Dialog({ open, onClose, title, description, children, footer, si
   description?: React.ReactNode
   children?: React.ReactNode
   footer?: React.ReactNode
-  size?: 'sm' | 'md' | 'lg' | 'xl'
+  /** `full`: nearly the whole screen, for editors with a lot on them. */
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full'
   dismissible?: boolean
 }) {
   const panel = React.useRef<HTMLDivElement>(null)
@@ -32,7 +33,7 @@ export function Dialog({ open, onClose, title, description, children, footer, si
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; previous?.focus?.() }
   }, [open])
   if (!open || typeof document === 'undefined') return null
-  const width = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' }[size]
+  const width = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl', full: 'max-w-6xl sm:max-h-[94vh]' }[size]
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-navy/40 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" onMouseDown={event => { if (event.target === event.currentTarget && dismissible) onClose() }}>
       <div ref={panel} role="dialog" aria-modal="true" tabIndex={-1} className={cn('flex max-h-[92vh] w-full flex-col rounded-t-xl bg-card shadow-2xl outline-none sm:rounded-xl', width)}>
@@ -43,7 +44,7 @@ export function Dialog({ open, onClose, title, description, children, footer, si
           </div>
           {dismissible && <button data-close onClick={onClose} aria-label="Close" className="-mr-1 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-4" /></button>}
         </div>
-        {children && <div className="overflow-y-auto px-5 py-4">{children}</div>}
+        {children && <div className={cn('overflow-y-auto px-5 py-4', size === 'full' && 'sm:px-6 sm:py-5')}>{children}</div>}
         {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-border bg-muted/40 px-5 py-3">{footer}</div>}
       </div>
     </div>,
@@ -86,7 +87,7 @@ export function Menu({ trigger, children, align = 'right', side = 'bottom' }: { 
 }
 
 export function MenuItem({ icon: Icon, danger, className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ComponentType<{ className?: string }>; danger?: boolean }) {
-  return <button role="menuitem" className={cn('flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors hover:bg-secondary-hover focus-visible:bg-secondary-hover focus-visible:outline-none', danger ? 'text-danger' : 'text-foreground', className)} {...props}>{Icon && <Icon className="size-4 opacity-70" />}{props.children}</button>
+  return <button role="menuitem" className={cn('flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors hover:bg-secondary-hover focus-visible:bg-secondary-hover focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40', danger ? 'text-danger' : 'text-foreground', className)} {...props}>{Icon && <Icon className="size-4 opacity-70" />}{props.children}</button>
 }
 
 /* ---------- Toasts & confirm prompts ---------- */

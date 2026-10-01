@@ -1,11 +1,14 @@
 import { emailRoomResults } from '@/lib/result-email'
 import { NextResponse } from 'next/server'
 import { HttpError, handler, readJson, requireTeacher } from '@/lib/auth'
-import { refreshPool, submitAttempt } from '@/lib/exams'
+import { refreshPool, submitAttempts } from '@/lib/exams'
 import { Attempt, JoinRequest, Question, isObjectId } from '@/lib/models'
 import { copyOf, serializeQuestion } from '@/lib/questions'
 import { assertPaperSettings, findTeacherRoom, openProblem, roomSettings, withRoomStats } from '@/lib/rooms'
 import { notifyExamEnded, notifyRoomDeleted, notifyScheduled } from '@/lib/schedule'
+
+/** Submitting grades the paper, which can run the students' code; give it time. */
+export const maxDuration = 300
 
 type Context = { params: Promise<{ id: string }> }
 
@@ -49,7 +52,7 @@ export const PATCH = handler(async (request: Request, context: Context) => {
 
   if (settings.status === 'closed') {
     const open = await Attempt.find({ room: room._id, status: 'in_progress' })
-    for (const attempt of open) await submitAttempt(attempt, { auto: true, reason: 'room_closed' })
+    await submitAttempts(open, { auto: true, reason: 'room_closed' })
     if (ending) {
       const [stats] = await withRoomStats([room.toObject()])
       await notifyExamEnded(room, teacher, stats, open.length)

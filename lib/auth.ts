@@ -80,6 +80,14 @@ export async function requireTeacher() {
   return teacher
 }
 
+/** Whoever is signed in (faculty or student), or null. Only checks the token, no database lookup. */
+export async function signedInUser(): Promise<{ role: 'teacher' | 'student'; id: string } | null> {
+  const teacher = await verifyToken<TeacherToken>(await sessionToken(TEACHER_COOKIE), 'teacher')
+  if (teacher) return { role: 'teacher', id: teacher.sub }
+  const student = await verifyToken<StudentToken>(await sessionToken(STUDENT_COOKIE), 'student')
+  return student ? { role: 'student', id: student.sub } : null
+}
+
 /** Returns the signed-in, activated student or throws 401. Pass `requireProfile` to also demand a completed profile. */
 export async function requireStudent({ requireProfile = true } = {}) {
   const session = await verifyToken<StudentToken>(await sessionToken(STUDENT_COOKIE), 'student')

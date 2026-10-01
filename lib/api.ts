@@ -88,6 +88,8 @@ export type DraftQuestion = {
   outputFormat: string
   constraints: string
   samples: Sample[]
+  /** Grading-only tests (coding). Faculty views only; students never receive them. */
+  hiddenTests?: Sample[]
   points: number | null
   language: string
   starterCode: string

@@ -11,6 +11,8 @@ export type QuestionInput = {
   outputFormat: string
   constraints: string
   samples: Sample[]
+  /** Grading-only tests the student never sees. */
+  hiddenTests: Sample[]
   points: number | null
   options: string[]
   correctIndex: number | null
@@ -67,6 +69,8 @@ const HEADER_ALIASES: Record<string, string[]> = {
   constraints: ['constraints', 'constraint', 'limits'],
   sampleInput: ['sampleinput', 'exampleinput'],
   sampleOutput: ['sampleoutput', 'exampleoutput'],
+  hiddenInput: ['hiddeninput', 'testinput'],
+  hiddenOutput: ['hiddenoutput', 'testoutput'],
   points: ['points', 'marks', 'score'],
 }
 
@@ -112,13 +116,10 @@ export function normalizeQuestion(raw: Record<string, unknown>): QuestionInput |
     explanation: String(raw.explanation ?? '').trim().slice(0, 5000),
     imageUrl: String(raw.imageUrl ?? raw.image ?? '').trim().slice(0, 2000),
   }
-  const noCoding = { title: '', inputFormat: '', outputFormat: '', constraints: '', samples: [] as Sample[], points: null }
+  const noCoding = { title: '', inputFormat: '', outputFormat: '', constraints: '', samples: [] as Sample[], hiddenTests: [] as Sample[], points: null }
   if (type === 'coding') {
-    const samples = (Array.isArray(raw.samples) ? raw.samples : [])
-      .map(sample => (sample ?? {}) as Record<string, unknown>)
-      .map(sample => ({ input: String(sample.input ?? '').slice(0, 5000), output: String(sample.output ?? '').slice(0, 5000), explanation: String(sample.explanation ?? '').slice(0, 2000) }))
-      .filter(sample => sample.input.trim() || sample.output.trim())
-      .slice(0, 10)
+    const samples = tests(raw.samples, 10)
+    const hiddenTests = tests(raw.hiddenTests, 10).map(test => ({ ...test, explanation: '' }))
     const points = Number(raw.points)
     return {
       ...base,
@@ -128,6 +129,7 @@ export function normalizeQuestion(raw: Record<string, unknown>): QuestionInput |
       outputFormat: String(raw.outputFormat ?? '').slice(0, 5000),
       constraints: String(raw.constraints ?? '').slice(0, 3000),
       samples,
+      hiddenTests,
       points: Number.isFinite(points) && points > 0 ? Math.min(points, 1000) : null,
       options: [],
       correctIndex: null,
@@ -171,6 +173,7 @@ export function questionsFromCsv(csv: string) {
       outputFormat: get('outputFormat'),
       constraints: get('constraints'),
       samples: [{ input: get('sampleInput'), output: get('sampleOutput') }],
+      hiddenTests: [{ input: get('hiddenInput'), output: get('hiddenOutput') }],
       points: get('points'),
       imageUrl: get('imageUrl') || get('image'),
     })
@@ -178,6 +181,15 @@ export function questionsFromCsv(csv: string) {
     else questions.push(result)
   })
   return { questions, errors }
+}
+
+/** Cleans a list of test cases ({ input, output, explanation }), dropping empty ones. */
+function tests(value: unknown, max: number): Sample[] {
+  return (Array.isArray(value) ? value : [])
+    .map(sample => (sample ?? {}) as Record<string, unknown>)
+    .map(sample => ({ input: String(sample.input ?? '').slice(0, 5000), output: String(sample.output ?? '').slice(0, 5000), explanation: String(sample.explanation ?? '').slice(0, 2000) }))
+    .filter(sample => sample.input.trim() || sample.output.trim())
+    .slice(0, max)
 }
 
 /** A normalized question in the shape the client edits (`set` rather than the stored `setLabel`). */
@@ -206,6 +218,7 @@ export function serializeQuestion(q: QuestionDoc) {
     outputFormat: q.outputFormat ?? '',
     constraints: q.constraints ?? '',
     samples: (q.samples ?? []).map(sample => ({ input: sample.input ?? '', output: sample.output ?? '', explanation: sample.explanation ?? '' })),
+    hiddenTests: (q.hiddenTests ?? []).map(test => ({ input: test.input ?? '', output: test.output ?? '', explanation: '' })),
     points: q.points ?? null,
     source: q.source,
     createdAt: q.createdAt,

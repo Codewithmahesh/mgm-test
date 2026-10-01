@@ -5,6 +5,9 @@ import { ExamRoom, Question } from '@/lib/models'
 import { applyAnswers, findOwnAttempt } from '@/lib/student-exam'
 import { assertSession, integrityOf } from '@/lib/proctoring'
 
+/** Submitting grades the paper, which can run the students' code; give it time. */
+export const maxDuration = 300
+
 type Context = { params: Promise<{ id: string }> }
 
 /** GET /api/student/attempts/:id — the student's paper (no answers or solutions), saved progress and timer. */

@@ -40,10 +40,14 @@ const codingSchema = {
       type: 'ARRAY',
       items: { type: 'OBJECT', properties: { input: { type: 'STRING' }, output: { type: 'STRING' }, explanation: { type: 'STRING' } }, required: ['input', 'output', 'explanation'] },
     },
+    hiddenTests: {
+      type: 'ARRAY',
+      items: { type: 'OBJECT', properties: { input: { type: 'STRING' }, output: { type: 'STRING' } }, required: ['input', 'output'] },
+    },
     bloom: { type: 'STRING', enum: BLOOM_ENUM },
     topic: { type: 'STRING' },
   },
-  required: ['title', 'statement', 'inputFormat', 'outputFormat', 'constraints', 'samples', 'bloom', 'topic'],
+  required: ['title', 'statement', 'inputFormat', 'outputFormat', 'constraints', 'samples', 'hiddenTests', 'bloom', 'topic'],
 }
 
 export type BatchSpec = {
@@ -87,7 +91,7 @@ export async function generateBatch({ topic, description, sourceText, files, lev
       files.length ? `Base every question on the attached ${files.length > 1 ? `${files.length} documents, covering all of them` : 'document'}.` : '',
       sourceText ? `Source material:\n"""\n${sourceText}\n"""` : '',
       mcqCount ? 'MCQs: exactly four distinct options and one correct answer; correctIndex is its 0-based position. Vary where the correct answer sits. No "all/none of the above".' : '',
-      codingCount ? 'Coding problems: competitive-programming style (like CodeChef). Clear statement, precise input and output formats reading from standard input and writing to standard output, realistic constraints, and 1–3 sample tests whose outputs are exactly correct, each with a short explanation. Solvable in any common language.' : '',
+      codingCount ? 'Coding problems: competitive-programming style (like CodeChef). Clear statement, precise input and output formats reading from standard input and writing to standard output, realistic constraints, and 1–3 sample tests whose outputs are exactly correct, each with a short explanation, plus 3–6 hidden tests (not shown to students, used for grading) that cover edge cases and larger inputs within the constraints, again with exactly correct outputs. Solvable in any common language.' : '',
     ].filter(Boolean).join('\n'),
   })
 

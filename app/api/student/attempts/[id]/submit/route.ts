@@ -4,6 +4,9 @@ import { isAcceptingAnswers, submitAttempt } from '@/lib/exams'
 import { applyAnswers, findOwnAttempt } from '@/lib/student-exam'
 import { assertSession } from '@/lib/proctoring'
 
+/** Submitting grades the paper, which can run the students' code; give it time. */
+export const maxDuration = 300
+
 type Context = { params: Promise<{ id: string }> }
 
 /** POST /api/student/attempts/:id/submit { answers? } — saves any last answers, grades and locks the attempt. */
