@@ -5,6 +5,8 @@ export const COLLEGE_NAME = "MGM's College of Engineering"
 export const COLLEGE_CITY = 'Nanded'
 export const PORTAL_NAME = 'Online Examination Portal'
 export const COMPANY_NAME = 'Exponentor'
+/** Where people write about their data and accounts (privacy policy, account deletion). Set NEXT_PUBLIC_SUPPORT_EMAIL. */
+export const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || ''
 
 /** MGM emblem. */
 export function Emblem({ size = 36, className }: { size?: number; className?: string }) {
@@ -46,6 +48,10 @@ export function SiteFooter({ dark = false, className }: { dark?: boolean; classN
   return (
     <footer className={cn('flex flex-col items-center justify-between gap-2 text-xs sm:flex-row', dark ? 'text-white/45' : 'text-muted-foreground', className)}>
       <span>© {new Date().getFullYear()} {COLLEGE_NAME}, {COLLEGE_CITY}</span>
+      <span className="flex items-center gap-4">
+        <Link href="/privacy-policy" className="hover:underline">Privacy policy</Link>
+        <Link href="/delete-account" className="hover:underline">Delete account</Link>
+      </span>
       <MadeBy dark={dark} />
     </footer>
   )

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
-import { HttpError, handler, readJson, requireTeacher } from '@/lib/auth'
+import { confirmDeletion, deleteTeacherAccount } from '@/lib/account-deletion'
+import { HttpError, clearCookie, handler, rateLimit, readJson, requireTeacher } from '@/lib/auth'
 import { Teacher } from '@/lib/models'
+import { TEACHER_COOKIE } from '@/lib/session'
 
 type TeacherDoc = { _id: unknown; name: string; email: string; department?: string | null }
 const serialize = (teacher: TeacherDoc) => ({ id: String(teacher._id), name: teacher.name, email: teacher.email, department: teacher.department ?? '' })
@@ -24,4 +26,18 @@ export const PATCH = handler(async (request: Request) => {
   const saved = await Teacher.findByIdAndUpdate(teacher._id, update, { returnDocument: 'after' }).select('-passwordHash').lean()
   if (!saved) throw new HttpError(401, 'Your account no longer exists. Please sign in again.')
   return NextResponse.json({ teacher: serialize(saved) })
+})
+
+/**
+ * DELETE /api/auth/me { password, confirm: "DELETE" } — deletes the faculty account for good, with its exam
+ * rooms (and the attempts in them), question bank, AI generations and practicals. See lib/account-deletion.ts.
+ */
+export const DELETE = handler(async (request: Request) => {
+  const teacher = await requireTeacher()
+  await rateLimit(`delete-account:teacher:${teacher._id}`, 5, 15 * 60)
+  const { passwordHash } = (await Teacher.findById(teacher._id).select('passwordHash').lean()) ?? {}
+  await confirmDeletion(passwordHash, await readJson(request))
+  await deleteTeacherAccount(teacher._id)
+  await clearCookie(TEACHER_COOKIE)
+  return NextResponse.json({ ok: true })
 })

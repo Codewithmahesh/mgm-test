@@ -31,6 +31,7 @@ function LoginForm() {
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
+      {params.get('deleted') && !error && <Alert tone="success">Your account and everything in it have been deleted.</Alert>}
       {error && <Alert>{error}</Alert>}
       <Field label="Email" htmlFor="email">
         <Input id="email" type="email" autoComplete="email" required autoFocus value={email} onChange={e => setEmail(e.target.value)} placeholder="you@college.edu" />

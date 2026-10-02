@@ -26,7 +26,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
 
   return (
     <TeacherContext.Provider value={teacher}>
-      <AppShell role="Faculty" nav={nav} action={{ href: '/teacher/rooms/new', label: 'New exam room', icon: Plus }} user={teacher ? { name: teacher.name, email: teacher.email, detail: teacher.department } : null} onLogout={logout}>
+      <AppShell role="Faculty" nav={nav} action={{ href: '/teacher/rooms/new', label: 'New exam room', icon: Plus }} user={teacher ? { name: teacher.name, email: teacher.email, detail: teacher.department } : null} onLogout={logout} profileHref="/teacher/account">
         {children}
       </AppShell>
     </TeacherContext.Provider>

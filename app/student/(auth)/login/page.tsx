@@ -31,6 +31,7 @@ function LoginForm() {
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
+      {params.get('deleted') && !error && <Alert tone="success">Your account and everything in it have been deleted.</Alert>}
       {error && <Alert>{error}{error.includes('not activated') && <> <Link href="/student/activate" className="font-semibold underline">Activate now</Link></>}</Alert>}
       <Field label="College email" htmlFor="email">
         <Input id="email" type="email" autoComplete="email" required autoFocus value={email} onChange={e => setEmail(e.target.value.trim())} placeholder="sd24_name@mgmcen.ac.in" />

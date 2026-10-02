@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardHeader, PageHeader } from '@/components/ui/card'
 import { Alert, Field, Input, Select } from '@/components/ui/form'
 import { useFeedback } from '@/components/ui/overlay'
+import { DeleteAccountCard } from '@/components/delete-account'
 import { useGibberishCheck } from '@/components/gibberish-check'
 import { BRANCH_OPTIONS, Classroom, YEAR_OPTIONS, api, errorMessage } from '@/lib/api'
 
@@ -140,6 +141,7 @@ export default function ProfilePage() {
           </div>
         </Card>
       </form>
+      {!firstTime && <div className="mt-6"><DeleteAccountCard account="student" /></div>}
     </div>
   )
 }

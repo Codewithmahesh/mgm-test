@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
-import { HttpError, handler, readJson, requireStudent } from '@/lib/auth'
-import { BRANCHES, Classroom, YEARS, isObjectId } from '@/lib/models'
+import { confirmDeletion, deleteStudentAccount } from '@/lib/account-deletion'
+import { HttpError, clearCookie, handler, rateLimit, readJson, requireStudent } from '@/lib/auth'
+import { BRANCHES, Classroom, Student, YEARS, isObjectId } from '@/lib/models'
+import { STUDENT_COOKIE } from '@/lib/session'
 import { classroomFor, serializeStudent } from '@/lib/students'
 
 export const GET = handler(async () => {
@@ -49,4 +51,18 @@ export const PATCH = handler(async (request: Request) => {
   }
   await student.populate('classroom')
   return NextResponse.json({ student: serializeStudent(student.toObject()) })
+})
+
+/**
+ * DELETE /api/student/me { password, confirm: "DELETE" } — deletes the student account for good, with its exam
+ * attempts, join requests and practical work. See lib/account-deletion.ts.
+ */
+export const DELETE = handler(async (request: Request) => {
+  const student = await requireStudent({ requireProfile: false })
+  await rateLimit(`delete-account:student:${student._id}`, 5, 15 * 60)
+  const { passwordHash } = (await Student.findById(student._id).select('passwordHash').lean()) ?? {}
+  await confirmDeletion(passwordHash, await readJson(request))
+  await deleteStudentAccount(student._id)
+  await clearCookie(STUDENT_COOKIE)
+  return NextResponse.json({ ok: true })
 })
