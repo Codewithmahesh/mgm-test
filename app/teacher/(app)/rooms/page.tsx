@@ -8,7 +8,7 @@ import { buttonVariants } from '@/components/ui/button'
 import { Card, EmptyState, PageHeader, PageLoader } from '@/components/ui/card'
 import { Alert, Input } from '@/components/ui/form'
 import { Tabs } from '@/components/ui/overlay'
-import { api, errorMessage, formatDate, type Room, type RoomStatus } from '@/lib/api'
+import { api, errorMessage, formatDate, paperSummary, type Room, type RoomStatus } from '@/lib/api'
 
 export default function RoomsPage() {
   const [rooms, setRooms] = useState<Room[] | null>(null)
@@ -41,7 +41,7 @@ export default function RoomsPage() {
                     <tr key={room.id}>
                       <td><Link href={`/teacher/rooms/${room.id}`} className="font-medium hover:text-primary">{room.title}</Link><div className="text-xs text-muted-foreground">Created {formatDate(room.createdAt)}</div></td>
                       <td><CopyCode code={room.code} /></td>
-                      <td className="text-[13px] text-muted-foreground">{room.questionsPerStudent} MCQ{room.codingQuestions ? ` + ${room.codingQuestions} coding` : ''}<div>{room.durationMinutes} min</div></td>
+                      <td className="text-[13px] text-muted-foreground">{paperSummary(room)}<div>{room.durationMinutes} min</div></td>
                       <td className="text-[13px] tabular-nums text-muted-foreground">{room.mcqPoolSize} MCQ{room.codingPoolSize ? ` · ${room.codingPoolSize} coding` : ''}</td>
                       <td className="tabular-nums">{room.submitted}<span className="text-muted-foreground"> / {room.joined}</span>{room.pendingReview > 0 && <div className="text-xs text-warning">{room.pendingReview} to grade</div>}</td>
                       <td className="tabular-nums">{room.averagePercent == null ? <span className="text-muted-foreground">—</span> : `${room.averagePercent}%`}</td>

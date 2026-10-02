@@ -129,6 +129,8 @@ const examRoomSchema = new Schema(
     questionsPerStudent: { type: Number, required: true, min: 0 },
     // Coding problems each student gets
     codingQuestions: { type: Number, default: 0, min: 0 },
+    // True/False questions per student. Unset on rooms made before it existed: there they count as MCQs.
+    tfQuestions: { type: Number, default: null, min: 0 },
     marksPerQuestion: { type: Number, default: 1, min: 0 },
     negativeMarks: { type: Number, default: 0, min: 0 },
     codingMarks: { type: Number, default: 10, min: 0 },
@@ -261,6 +263,7 @@ export const PART_STATUSES = ['pending', 'running', 'done', 'failed'] as const
 const generationPartSchema = new Schema({
   index: { type: Number, required: true },
   levels: { type: [Number], default: [] },
+  tf: { type: Number, default: 0 },
   coding: { type: Number, default: 0 },
   status: { type: String, enum: PART_STATUSES, default: 'pending' },
   attempts: { type: Number, default: 0 },
@@ -295,7 +298,7 @@ const generationJobSchema = new Schema(
     parts: { type: [generationPartSchema], default: [] },
     // What was asked for (GenerationPlan in components/add-questions.tsx), applied to the room on save.
     plan: { type: Schema.Types.Mixed, default: null },
-    requested: { mcq: { type: Number, default: 0 }, coding: { type: Number, default: 0 } },
+    requested: { mcq: { type: Number, default: 0 }, tf: { type: Number, default: 0 }, coding: { type: Number, default: 0 } },
     // Review-ready drafts, labelled with their sets.
     result: { type: [Schema.Types.Mixed], default: [] },
     resultCount: { type: Number, default: 0 },
@@ -396,6 +399,48 @@ const practicalSubmissionSchema = new Schema(
 practicalSubmissionSchema.index({ subject: 1, student: 1, experiment: 1 })
 practicalSubmissionSchema.index({ subject: 1, createdAt: -1 })
 
+// AI writing experiments for a practical in the background (an imported practical list, or one experiment
+// drafted from a topic). Items are written and added one at a time, in order, and the faculty member is
+// emailed when it starts and when it finishes. See lib/practical-jobs.ts.
+export const PRACTICAL_JOB_ITEM_STATUSES = ['pending', 'running', 'done', 'failed'] as const
+const practicalJobItemSchema = new Schema(
+  {
+    title: { type: String, default: '' },
+    // Instructions for the AI: the aim from the list, or the faculty member's notes.
+    description: { type: String, default: '' },
+    status: { type: String, enum: PRACTICAL_JOB_ITEM_STATUSES, default: 'pending' },
+    attempts: { type: Number, default: 0 },
+    retryAt: { type: Date, default: null },
+    claim: { type: String, default: '' },
+    claimedAt: { type: Date, default: null },
+    error: { type: String, default: '' },
+    // The experiment it became.
+    experiment: { type: Schema.Types.ObjectId, default: null },
+    order: { type: Number, default: null },
+  },
+  { _id: false },
+)
+
+const practicalJobSchema = new Schema(
+  {
+    teacher: { type: Schema.Types.ObjectId, ref: 'Teacher', required: true },
+    subject: { type: Schema.Types.ObjectId, ref: 'PracticalSubject', required: true },
+    kind: { type: String, enum: ['import', 'draft'], default: 'import' },
+    level: { type: String, default: 'medium' },
+    items: { type: [practicalJobItemSchema], default: [] },
+    status: { type: String, enum: ['running', 'finished', 'cancelled'], default: 'running' },
+    finishedAt: { type: Date, default: null },
+    // When the "finished" email went out.
+    notifiedAt: { type: Date, default: null },
+    // Hidden from the practical page once the faculty member closes its banner.
+    dismissed: { type: Boolean, default: false },
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 30 * 24 * 60 * 60_000), index: { expires: 0 } },
+  },
+  { timestamps: true },
+)
+practicalJobSchema.index({ subject: 1, createdAt: -1 })
+practicalJobSchema.index({ status: 1 })
+
 // Output of a program for one input, keyed by a hash of (language, code, input), so the same run is never
 // paid for twice: a student's "Run" and the grading at submit, regrades, identical submissions.
 const codeRunSchema = new Schema({
@@ -425,6 +470,7 @@ export const PracticalSubject = model('PracticalSubject', practicalSubjectSchema
 export const Experiment = model('Experiment', experimentSchema)
 export const PracticeProblem = model('PracticeProblem', practiceProblemSchema)
 export const PracticalSubmission = model('PracticalSubmission', practicalSubmissionSchema)
+export const PracticalJob = model('PracticalJob', practicalJobSchema)
 
 export type QuestionDoc = InferSchemaType<typeof questionSchema> & { _id: Types.ObjectId }
 

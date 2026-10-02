@@ -4,7 +4,7 @@ import { HttpError } from './auth'
 import { INTEGRITY_EVENTS, INTEGRITY_EVENT_TYPES } from './integrity'
 import { BLOOM_INFO, BLOOM_LEVELS, normalizeBloom, type BloomPlan } from './bloom'
 import { Attempt, ExamRoom, JoinRequest, PAPER_MODES, Question, RESULT_VISIBILITY, isObjectId } from './models'
-import { poolProblems, type PaperConfig } from './paper-rules'
+import { poolProblems, separateTf, type PaperConfig } from './paper-rules'
 
 // Sum of violation-type flags on an attempt, as a MongoDB expression.
 const violationsExpr = { $add: [...INTEGRITY_EVENT_TYPES.filter(t => INTEGRITY_EVENTS[t].violation).map(t => ({ $ifNull: [`$flags.${t}`, 0] })), 0] }
@@ -16,6 +16,7 @@ type RoomLean = {
   instructions?: string | null
   code: string
   questionsPerStudent: number
+  tfQuestions?: number | null
   codingQuestions?: number | null
   marksPerQuestion: number
   negativeMarks?: number | null
@@ -41,9 +42,9 @@ type RoomLean = {
 export async function withRoomStats(rooms: RoomLean[]) {
   const ids = rooms.map(room => room._id)
   const [questionCounts, attemptCounts, waitingCounts] = await Promise.all([
-    Question.aggregate<{ _id: Types.ObjectId; total: number; coding: number }>([
+    Question.aggregate<{ _id: Types.ObjectId; total: number; tf: number; coding: number }>([
       { $match: { room: { $in: ids } } },
-      { $group: { _id: '$room', total: { $sum: 1 }, coding: { $sum: { $cond: [{ $eq: ['$type', 'coding'] }, 1, 0] } } } },
+      { $group: { _id: '$room', total: { $sum: 1 }, tf: { $sum: { $cond: [{ $eq: ['$type', 'tf'] }, 1, 0] } }, coding: { $sum: { $cond: [{ $eq: ['$type', 'coding'] }, 1, 0] } } } },
     ]),
     Attempt.aggregate<{ _id: Types.ObjectId; joined: number; submitted: number; avgPercent: number | null; pending: number; flagged: number }>([
       { $match: { room: { $in: ids } } },
@@ -71,7 +72,7 @@ export async function withRoomStats(rooms: RoomLean[]) {
 
 export function serializeRoom(
   room: RoomLean,
-  questions?: { total: number; coding: number },
+  questions?: { total: number; tf?: number; coding: number },
   attempts?: { joined: number; submitted: number; avgPercent: number | null; pending?: number; flagged?: number },
 ) {
   return {
@@ -81,6 +82,9 @@ export function serializeRoom(
     instructions: room.instructions ?? '',
     code: room.code,
     questionsPerStudent: room.questionsPerStudent,
+    // 0 on rooms made before True/False had its own count; `tfSeparate` tells them apart.
+    tfQuestions: room.tfQuestions ?? 0,
+    tfSeparate: separateTf(room),
     codingQuestions: room.codingQuestions ?? 0,
     marksPerQuestion: room.marksPerQuestion,
     negativeMarks: room.negativeMarks ?? 0,
@@ -101,7 +105,9 @@ export function serializeRoom(
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     poolSize: questions?.total ?? 0,
-    mcqPoolSize: (questions?.total ?? 0) - (questions?.coding ?? 0),
+    // On older rooms True/False questions are part of the MCQ pool.
+    mcqPoolSize: (questions?.total ?? 0) - (questions?.coding ?? 0) - (separateTf(room) ? questions?.tf ?? 0 : 0),
+    tfPoolSize: separateTf(room) ? questions?.tf ?? 0 : 0,
     codingPoolSize: questions?.coding ?? 0,
     joined: attempts?.joined ?? 0,
     submitted: attempts?.submitted ?? 0,
@@ -132,7 +138,7 @@ export async function openProblem(room: PaperConfig & { _id: Types.ObjectId }) {
   if (!pool.length) return 'Add questions before opening the room.'
   const problems = poolProblems(room, pool)
   if (problems.length) return `${problems[0]} Add more questions or change the paper settings.`
-  if (Number(room.questionsPerStudent) + Number(room.codingQuestions ?? 0) === 0) return 'Set how many MCQs or coding problems each student gets.'
+  if (Number(room.questionsPerStudent) + Number(room.tfQuestions ?? 0) + Number(room.codingQuestions ?? 0) === 0) return 'Set how many MCQs, True/False questions or coding problems each student gets.'
   return null
 }
 
@@ -167,6 +173,9 @@ export function roomSettings(body: Record<string, unknown>, partial = false) {
   text('instructions', 5000)
   number('durationMinutes', 'Duration', 1, 600)
   number('questionsPerStudent', 'MCQs per student', 0, 500)
+  // New rooms count True/False separately (older rooms keep it unset until saved with a count).
+  if (!partial && !has('tfQuestions')) settings.tfQuestions = 0
+  if (has('tfQuestions')) number('tfQuestions', 'True/False per student', 0, 500)
   if (has('codingQuestions') || !partial) settings.codingQuestions = 0
   if (has('codingQuestions')) number('codingQuestions', 'Coding problems per student', 0, 20)
   if (has('marksPerQuestion') || !partial) { settings.marksPerQuestion = 1; if (has('marksPerQuestion')) number('marksPerQuestion', 'Marks per MCQ', 0, 100, false) }

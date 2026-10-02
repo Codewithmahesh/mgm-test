@@ -18,6 +18,8 @@ export type RoomFormValues = {
   instructions: string
   durationMinutes: string
   questionsPerStudent: string
+  /** Empty on older rooms that still count True/False questions as MCQs. */
+  tfQuestions: string
   codingQuestions: string
   marksPerQuestion: string
   negativeMarks: string
@@ -44,7 +46,7 @@ const DEFAULT_INSTRUCTIONS = [
 ].join('\n')
 
 export function emptyRoomValues(): RoomFormValues {
-  return { title: '', description: '', instructions: DEFAULT_INSTRUCTIONS, durationMinutes: '60', questionsPerStudent: '20', codingQuestions: '0', marksPerQuestion: '1', negativeMarks: '0', codingMarks: '10', startsAt: '', autoOpen: true, showResults: 'after_end', allowedClassrooms: [], requireFullscreen: true, blockCopyPaste: true, maxViolations: '0', requireApproval: true, paperMode: 'random', setCount: '3', bloomMode: 'auto', bloomPlan: emptyPlanDraft() }
+  return { title: '', description: '', instructions: DEFAULT_INSTRUCTIONS, durationMinutes: '60', questionsPerStudent: '20', tfQuestions: '0', codingQuestions: '0', marksPerQuestion: '1', negativeMarks: '0', codingMarks: '10', startsAt: '', autoOpen: true, showResults: 'after_end', allowedClassrooms: [], requireFullscreen: true, blockCopyPaste: true, maxViolations: '0', requireApproval: true, paperMode: 'random', setCount: '3', bloomMode: 'auto', bloomPlan: emptyPlanDraft() }
 }
 
 function toLocalInput(value: string | null) {
@@ -56,7 +58,7 @@ function toLocalInput(value: string | null) {
 export function roomToValues(room: Room): RoomFormValues {
   return {
     title: room.title, description: room.description, instructions: room.instructions,
-    durationMinutes: String(room.durationMinutes), questionsPerStudent: String(room.questionsPerStudent), codingQuestions: String(room.codingQuestions),
+    durationMinutes: String(room.durationMinutes), questionsPerStudent: String(room.questionsPerStudent), tfQuestions: room.tfSeparate ? String(room.tfQuestions) : '', codingQuestions: String(room.codingQuestions),
     marksPerQuestion: String(room.marksPerQuestion), negativeMarks: String(room.negativeMarks), codingMarks: String(room.codingMarks),
     startsAt: toLocalInput(room.startsAt), autoOpen: room.autoOpen, showResults: room.showResults, allowedClassrooms: room.allowedClassrooms,
     requireFullscreen: room.requireFullscreen, blockCopyPaste: room.blockCopyPaste, maxViolations: String(room.maxViolations), requireApproval: room.requireApproval,
@@ -66,9 +68,11 @@ export function roomToValues(room: Room): RoomFormValues {
 }
 
 export function valuesToPayload(values: RoomFormValues) {
-  const { bloomMode, bloomPlan, ...rest } = values
+  const { bloomMode, bloomPlan, tfQuestions, ...rest } = values
   return {
     ...rest,
+    // Left empty on an older room: it keeps counting True/False questions as MCQs.
+    ...(tfQuestions.trim() ? { tfQuestions: Number(tfQuestions) || 0 } : {}),
     durationMinutes: Number(values.durationMinutes), questionsPerStudent: Number(values.questionsPerStudent), codingQuestions: Number(values.codingQuestions),
     marksPerQuestion: Number(values.marksPerQuestion), negativeMarks: Number(values.negativeMarks), codingMarks: Number(values.codingMarks),
     maxViolations: Number(values.maxViolations) || 0,
@@ -90,7 +94,7 @@ function Choice({ selected, onSelect, icon: Icon, title, text }: { selected: boo
   )
 }
 
-export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: RoomFormValues; submitLabel: string; onSubmit: (values: RoomFormValues) => Promise<void>; pool?: { mcq: number; coding: number } }) {
+export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: RoomFormValues; submitLabel: string; onSubmit: (values: RoomFormValues) => Promise<void>; pool?: { mcq: number; tf?: number; coding: number } }) {
   const { confirm } = useFeedback()
   const checkText = useGibberishCheck()
   const [values, setValues] = useState(initial)
@@ -108,9 +112,10 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
 
   const usePlan = values.bloomMode === 'plan'
   const mcq = Number(values.questionsPerStudent) || 0
+  const tf = Number(values.tfQuestions) || 0
   const coding = Number(values.codingQuestions) || 0
   const plan = usePlan ? draftToPlan(values.bloomPlan) : []
-  const marks = paperMarks({ questionsPerStudent: mcq, marksPerQuestion: Number(values.marksPerQuestion) || 0, codingQuestions: coding, codingMarks: Number(values.codingMarks) || 0, bloomPlan: plan })
+  const marks = paperMarks({ questionsPerStudent: mcq, tfQuestions: tf, marksPerQuestion: Number(values.marksPerQuestion) || 0, codingQuestions: coding, codingMarks: Number(values.codingMarks) || 0, bloomPlan: plan })
   const sets = values.paperMode === 'sets' ? Number(values.setCount) || 0 : 0
   const planOver = usePlan && draftCount(values.bloomPlan) > mcq
 
@@ -160,8 +165,9 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
           <div className="grid gap-4 p-5 sm:grid-cols-3">
             <Field label="Duration (minutes)" required htmlFor="duration"><Input id="duration" type="number" min={1} max={600} required value={values.durationMinutes} onChange={text('durationMinutes')} /></Field>
             <Field label="MCQs per student" required htmlFor="mcq" hint={pool ? `${pool.mcq} in this room's pool` : undefined}><Input id="mcq" type="number" min={0} max={500} required value={values.questionsPerStudent} onChange={text('questionsPerStudent')} /></Field>
+            <Field label="True / False per student" htmlFor="tf" hint={values.tfQuestions.trim() === '' ? 'Empty: True/False questions count as MCQs, as before.' : pool ? `${pool.tf ?? 0} in this room's pool` : undefined}><Input id="tf" type="number" min={0} max={500} value={values.tfQuestions} placeholder="Counted with MCQs" onChange={text('tfQuestions')} /></Field>
             <Field label="Coding problems per student" htmlFor="coding" hint={pool ? `${pool.coding} in this room's pool` : undefined}><Input id="coding" type="number" min={0} max={20} value={values.codingQuestions} onChange={text('codingQuestions')} /></Field>
-            <Field label="Marks per MCQ" htmlFor="marks" hint={usePlan ? 'For questions not covered by the Bloom plan.' : undefined}><Input id="marks" type="number" min={0} step={0.25} value={values.marksPerQuestion} onChange={text('marksPerQuestion')} /></Field>
+            <Field label="Marks per MCQ / True-False" htmlFor="marks" hint={usePlan ? 'For questions not covered by the Bloom plan.' : undefined}><Input id="marks" type="number" min={0} step={0.25} value={values.marksPerQuestion} onChange={text('marksPerQuestion')} /></Field>
             <Field label="Negative marks per wrong MCQ" htmlFor="neg" hint="0 for no negative marking."><Input id="neg" type="number" min={0} step={0.25} value={values.negativeMarks} onChange={text('negativeMarks')} /></Field>
             <Field label="Marks per coding problem" htmlFor="cmarks" hint="Default; a problem can set its own."><Input id="cmarks" type="number" min={0} step={0.5} value={values.codingMarks} onChange={text('codingMarks')} /></Field>
           </div>
@@ -178,7 +184,7 @@ export function RoomForm({ initial, submitLabel, onSubmit, pool }: { initial: Ro
               <div className="flex flex-col gap-3 rounded-lg border border-primary-border bg-primary-soft/30 p-4 sm:flex-row sm:items-end sm:gap-5">
                 <Field label="How many sets?" required htmlFor="setCount" className="w-36"><Input id="setCount" type="number" min={2} max={26} required value={values.setCount} onChange={text('setCount')} /></Field>
                 <p className="text-[13px] leading-6 text-muted-foreground sm:pb-1.5">
-                  {sets >= 2 ? <>Sets <b className="font-semibold text-foreground">{setNames(sets).join(', ')}</b>, each with {mcq} MCQs{coding ? ` + ${coding} coding` : ''}. The pool needs {sets * mcq} MCQs{coding ? ` and ${sets * coding} coding problems` : ''} tagged by set, or generate them in sets with AI.</> : 'Enter 2 or more.'}
+                  {sets >= 2 ? <>Sets <b className="font-semibold text-foreground">{setNames(sets).join(', ')}</b>, each with {mcq} MCQs{tf ? ` + ${tf} True/False` : ''}{coding ? ` + ${coding} coding` : ''}. The pool needs {sets * mcq} MCQs{tf ? `, ${sets * tf} True/False` : ''}{coding ? ` and ${sets * coding} coding problems` : ''} tagged by set, or generate them in sets with AI.</> : 'Enter 2 or more.'}
                 </p>
               </div>
             )}

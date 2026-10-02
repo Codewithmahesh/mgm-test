@@ -23,9 +23,11 @@ import type { SourceFile } from './source-files'
 export const MAX_SETS = 20
 export const MAX_TOTAL_MCQ = 1000
 export const MAX_TOTAL_CODING = 100
+export const MAX_TOTAL_TF = 500
 // Questions per AI call (lib/generate.ts allows up to 120 MCQs and 12 coding problems) and calls at once per job.
 const MCQ_PER_PART = 60
 const CODING_PER_PART = 10
+const TF_PER_PART = 60
 const PARALLEL_PARTS = 4
 // A claimed part nobody finished in this time (the server was stopped mid-call) is run again.
 const STALE_CLAIM_MS = 6 * 60_000
@@ -40,12 +42,12 @@ const UNSAVED_NOTICE_MS = 3 * 60_000
 const loadJob = (id: Types.ObjectId | string) => GenerationJob.findById(id)
 type JobDoc = NonNullable<Awaited<ReturnType<typeof loadJob>>>
 type Draft = ReturnType<typeof toDraft>
-export type GenerationPlan = { sets: string[]; mcqPerSet: number; codingPerSet: number; bloomPlan: unknown; applyToRoom: boolean }
+export type GenerationPlan = { sets: string[]; mcqPerSet: number; tfPerSet?: number; codingPerSet: number; bloomPlan: unknown; applyToRoom: boolean }
 
 const busyError = (error: unknown) => error instanceof HttpError && (error.status === 503 || error.status === 429)
 const messageOf = (error: unknown) => (error instanceof HttpError ? error.message : 'The AI service failed unexpectedly.')
 
-export async function createJob({ teacher, room, title, topic, description, sourceText, files, levels, singleLevel, codingPerSet, sets, plan }: {
+export async function createJob({ teacher, room, title, topic, description, sourceText, files, levels, singleLevel, tfPerSet = 0, codingPerSet, sets, plan }: {
   teacher: Types.ObjectId
   room: Types.ObjectId | null
   title: string
@@ -56,6 +58,7 @@ export async function createJob({ teacher, room, title, topic, description, sour
   /** MCQs per set at each Bloom level. */
   levels: number[]
   singleLevel: BloomLevel | null
+  tfPerSet?: number
   codingPerSet: number
   sets: number
   plan: GenerationPlan
@@ -65,19 +68,21 @@ export async function createJob({ teacher, room, title, topic, description, sour
   const totals = levels.map(n => n * sets)
   const totalMcq = totals.reduce((a, b) => a + b, 0)
   const totalCoding = codingPerSet * sets
-  if (totalMcq + totalCoding === 0) throw new HttpError(400, 'Ask for at least one MCQ or coding problem.')
+  const totalTf = tfPerSet * sets
+  if (totalMcq + totalTf + totalCoding === 0) throw new HttpError(400, 'Ask for at least one MCQ, True/False question or coding problem.')
+  if (totalTf > MAX_TOTAL_TF) throw new HttpError(400, `That is ${totalTf} True/False questions in total; generate at most ${MAX_TOTAL_TF} at a time (fewer sets or fewer per set).`)
   if (totalMcq > MAX_TOTAL_MCQ) throw new HttpError(400, `That is ${totalMcq} MCQs in total; generate at most ${MAX_TOTAL_MCQ} at a time (fewer sets or fewer questions per set).`)
   if (totalCoding > MAX_TOTAL_CODING) throw new HttpError(400, `That is ${totalCoding} coding problems in total; generate at most ${MAX_TOTAL_CODING} at a time.`)
 
   // Every part gets a share of each Bloom level and of the coding problems.
-  const count = Math.max(1, Math.ceil(totalMcq / MCQ_PER_PART), Math.ceil(totalCoding / CODING_PER_PART))
+  const count = Math.max(1, Math.ceil(totalMcq / MCQ_PER_PART), Math.ceil(totalTf / TF_PER_PART), Math.ceil(totalCoding / CODING_PER_PART))
   const share = (total: number, i: number) => Math.floor((total * (i + 1)) / count) - Math.floor((total * i) / count)
-  const parts = Array.from({ length: count }, (_, i) => ({ index: i, levels: totals.map(total => share(total, i)), coding: share(totalCoding, i) }))
+  const parts = Array.from({ length: count }, (_, i) => ({ index: i, levels: totals.map(total => share(total, i)), tf: share(totalTf, i), coding: share(totalCoding, i) }))
 
   return GenerationJob.create({
     teacher, room, title, plan, parts, files,
     input: { topic, description, sourceText, singleLevel, sets },
-    requested: { mcq: totalMcq, coding: totalCoding },
+    requested: { mcq: totalMcq, tf: totalTf, coding: totalCoding },
   })
 }
 
@@ -94,13 +99,13 @@ export async function runPart(jobId: Types.ObjectId | string) {
   const part = job.parts.find(p => p.claim === claim)!
 
   try {
-    const { mcqs, coding } = await generateBatch({
+    const { mcqs, trueFalse, coding } = await generateBatch({
       topic: job.input?.topic ?? '', description: job.input?.description ?? '', sourceText: job.input?.sourceText ?? '',
       files: job.files.map(file => ({ name: file.name ?? '', data: file.data as Buffer })),
-      levels: part.levels, singleLevel: (job.input?.singleLevel as BloomLevel | null) ?? null, codingCount: part.coding,
+      levels: part.levels, singleLevel: (job.input?.singleLevel as BloomLevel | null) ?? null, tfCount: part.tf ?? 0, codingCount: part.coding,
       sets: job.input?.sets ?? 1, part: part.index + 1, partCount: job.parts.length,
     })
-    const questions = [...mcqs, ...coding].map(toDraft)
+    const questions = [...mcqs, ...trueFalse, ...coding].map(toDraft)
     await GenerationJob.updateOne({ _id: job._id, 'parts.claim': claim }, { $set: { 'parts.$.status': 'done', 'parts.$.questions': questions, 'parts.$.error': '' } })
     await finalizeIfDone(job._id)
     return { claimed: true, busy: false, questions, error: '' }
@@ -134,10 +139,11 @@ async function finalizeIfDone(jobId: Types.ObjectId) {
   })
   const sets = job.input?.sets ?? 1
   const label = (list: Draft[]) => (sets > 1 ? dealIntoSets(list, sets).map(({ question, set }) => ({ ...question, set })) : list.map(q => ({ ...q, set: '' })))
-  const result = [...label(unique.filter(q => q.type !== 'coding')), ...label(unique.filter(q => q.type === 'coding'))]
+  // Each type is dealt into the sets separately, so every set gets the same number of each.
+  const result = [...label(unique.filter(q => q.type === 'mcq')), ...label(unique.filter(q => q.type === 'tf')), ...label(unique.filter(q => q.type === 'coding'))]
 
   const failed = parts.filter(p => p.status === 'failed')
-  const requested = (job.requested?.mcq ?? 0) + (job.requested?.coding ?? 0)
+  const requested = (job.requested?.mcq ?? 0) + (job.requested?.tf ?? 0) + (job.requested?.coding ?? 0)
   const reason = failed.at(-1)?.error || 'The AI service failed.'
   const error = !failed.length ? '' : result.length ? `Only ${result.length} of ${requested} questions could be generated: ${reason}` : reason
 
@@ -167,6 +173,7 @@ async function notifyFinished(job: JobDoc) {
   if (!teacher) return
   const questions = (job.result ?? []) as Draft[]
   const coding = questions.filter(q => q.type === 'coding').length
+  const tf = questions.filter(q => q.type === 'tf').length
   const sets = (job.plan as GenerationPlan | null)?.sets ?? []
   const where = room ? `${room.title} (${room.code})` : 'Your question bank'
   const details: [string, string][] = [
@@ -185,7 +192,7 @@ async function notifyFinished(job: JobDoc) {
         heading: 'Your questions are ready to review',
         greeting: `Hi ${teacher.name},`,
         paragraphs: [`The questions you asked the AI for are ready. Nothing has been added yet: review them, edit anything you like, then add them ${room ? 'to the room' : 'to your question bank'}.`],
-        details: [['Generated', `${questions.length - coding} MCQs${coding ? ` + ${coding} coding problems` : ''}`], ...(sets.length ? [['Sets', sets.join(', ')] as [string, string]] : []), ...details],
+        details: [['Generated', [`${questions.length - coding - tf} MCQs`, tf ? `${tf} True/False` : '', coding ? `${coding} coding problems` : ''].filter(Boolean).join(' + ')], ...(sets.length ? [['Sets', sets.join(', ')] as [string, string]] : []), ...details],
         callout: job.error ? { tone: 'warn', text: job.error } : undefined,
         button: { label: 'Review questions', path: `/teacher/generations?review=${job._id}` },
         footnote: 'Unreviewed questions are kept for 30 days.',
@@ -254,7 +261,7 @@ export function jobSummary(job: JobDoc | Record<string, unknown>, room?: { _id: 
     status: j.status,
     background: Boolean(j.background),
     room: room ? { id: String(room._id), title: room.title, code: room.code } : null,
-    requested: { mcq: j.requested?.mcq ?? 0, coding: j.requested?.coding ?? 0 },
+    requested: { mcq: j.requested?.mcq ?? 0, tf: j.requested?.tf ?? 0, coding: j.requested?.coding ?? 0 },
     sets: (j.plan as GenerationPlan | null)?.sets ?? [],
     progress: {
       total: parts.length,

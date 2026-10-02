@@ -3,7 +3,7 @@ import { randomInt } from 'node:crypto'
 import type { Types } from 'mongoose'
 import { Attempt, ExamRoom, Question } from './models'
 import { BLOOM_LEVELS, type BloomLevel } from './bloom'
-import { activeSets, setPool } from './paper-rules'
+import { activeSets, paperKind, setPool } from './paper-rules'
 import { evaluateCode } from './code-runs'
 import { emailAfterSubmit } from './result-email'
 
@@ -11,6 +11,7 @@ type AttemptDoc = NonNullable<Awaited<ReturnType<typeof Attempt.findOne>>>
 type RoomLike = {
   _id: Types.ObjectId
   questionsPerStudent: number
+  tfQuestions?: number | null
   codingQuestions?: number | null
   marksPerQuestion?: number | null
   codingMarks?: number | null
@@ -100,7 +101,9 @@ function pickBalanced(candidates: PoolQuestion[], quotas: number[], turn: number
  * - "sets" mode: students get sets A, B, C… in the order they start; the set is saved on the paper.
  * - Within a level, students get the next slice of the shuffled pool (round-robin), so questions
  *   are spread evenly and neighbours get different papers.
- * MCQs come first in random order, coding problems last.
+ * - True/False questions (on rooms that count them separately) are balanced across levels the same way,
+ *   at the default marks, and mixed in with the MCQs.
+ * MCQs and True/False come first in random order, coding problems last.
  */
 export async function dealQuestions(room: RoomLike) {
   const questions = await Question.find({ room: room._id }).select('_id type bloom setLabel points').lean()
@@ -129,8 +132,10 @@ export async function dealQuestions(room: RoomLike) {
     turn = Math.floor(turn / sets.length)
   }
 
-  const objectiveAll = pool.filter(q => q.type !== 'coding')
-  const objective = candidates.filter(q => q.type !== 'coding')
+  // On older rooms True/False questions count as MCQs (see separateTf).
+  const objectiveAll = pool.filter(q => paperKind(room, q.type) === 'mcq')
+  const objective = candidates.filter(q => paperKind(room, q.type) === 'mcq')
+  const trueFalse = candidates.filter(q => paperKind(room, q.type) === 'tf')
   const coding = candidates.filter(q => q.type === 'coding')
   const defaultMarks = room.marksPerQuestion ?? 1
 
@@ -146,12 +151,16 @@ export async function dealQuestions(room: RoomLike) {
   const rest = Math.max(0, Math.min(room.questionsPerStudent, objective.length) - planned.length)
   const unplanned = pickBalanced(objective.filter(q => !taken.has(q.id)), proportionalQuotas(bucketSizes(objectiveAll.filter(q => !taken.has(q.id))), rest), turn)
     .map(q => ({ id: q.id, marks: defaultMarks }))
-  // 3. Coding problems, balanced across levels, at their own marks.
+  // 3. True/False questions, balanced across levels, at the default marks.
+  const tfNeed = Math.min(room.tfQuestions ?? 0, trueFalse.length)
+  const tfPicked = pickBalanced(trueFalse, proportionalQuotas(bucketSizes(pool.filter(q => paperKind(room, q.type) === 'tf')), tfNeed), turn)
+    .map(q => ({ id: q.id, marks: defaultMarks }))
+  // 4. Coding problems, balanced across levels, at their own marks.
   const codingNeed = Math.min(room.codingQuestions ?? 0, coding.length)
   const codingPicked = pickBalanced(coding, proportionalQuotas(bucketSizes(pool.filter(q => q.type === 'coding')), codingNeed), turn)
     .map(q => ({ id: q.id, marks: q.points ?? room.codingMarks ?? 10 }))
 
-  const paper = [...shuffle([...planned, ...unplanned]), ...codingPicked]
+  const paper = [...shuffle([...planned, ...unplanned, ...tfPicked]), ...codingPicked]
   return { questions: paper.map(q => byId.get(q.id)!._id), marks: paper.map(q => q.marks), set }
 }
 

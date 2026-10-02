@@ -30,9 +30,9 @@ export const GET = handler(async (_request: Request, context: Context) => {
       return {
         id: String(experiment._id),
         order: experiment.order,
-        // A locked level shows only its number, not what's in it.
-        title: status === 'locked' ? '' : experiment.title,
-        topic: status === 'locked' ? '' : experiment.topic ?? '',
+        // Locked levels are listed (and can be read) but not solved until the one before is.
+        title: experiment.title,
+        topic: experiment.topic ?? '',
         status,
         attempts: result?.attempts ?? 0,
         solvedAt: result?.solvedAt ?? null,

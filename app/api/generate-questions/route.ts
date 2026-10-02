@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { handler, rateLimit, requireTeacher } from '@/lib/auth'
 import { BLOOM_LEVELS, dealIntoSets, setName, splitByShares, type BloomLevel } from '@/lib/bloom'
-import { MAX_CODING_PER_CALL, MAX_MCQS_PER_CALL, generateBatch } from '@/lib/generate'
+import { MAX_CODING_PER_CALL, MAX_MCQS_PER_CALL, MAX_TF_PER_CALL, generateBatch } from '@/lib/generate'
 import { toDraft, type QuestionInput } from '@/lib/questions'
 import { readSourceFiles, type SourceFile } from '@/lib/source-files'
 
@@ -12,7 +12,7 @@ const MAX_SETS = 20
 /**
  * POST /api/generate-questions (multipart form or JSON) — one AI call, answered directly.
  * The faculty UI uses /api/generation-jobs instead, which splits big requests and can run in the background.
- * Fields: topic, sourceText, files (PDF, .doc, .docx or .tex; repeatable), mcqCount and codingCount (per set), sets (1-20),
+ * Fields: topic, sourceText, files (PDF, .doc, .docx or .tex; repeatable), mcqCount, tfCount and codingCount (per set), sets (1-20),
  * bloomMode (mixed | custom | one Bloom level) and, for custom, remember/understand/apply/analyze/
  * evaluate/create MCQ counts per set. With sets > 1 the questions come back labelled A, B, C…,
  * every set with the same count per Bloom level.
@@ -34,19 +34,20 @@ export const POST = handler(async (request: Request) => {
     perSet = mode === 'mixed' ? splitByShares(count) : BLOOM_LEVELS.map(level => (level === mode ? count : 0))
   }
 
-  const { mcqs, coding } = await generateBatch({
+  const { mcqs, trueFalse, coding } = await generateBatch({
     topic: fields.topic.slice(0, 300),
     description: fields.description.slice(0, 3000),
     sourceText: fields.sourceText.slice(0, 80_000),
     files: fields.files,
     levels: perSet.map(n => n * sets),
     singleLevel: mode !== 'mixed' && mode !== 'custom' ? (mode as BloomLevel) : null,
+    tfCount: clamp(fields.tfCount, 0, MAX_TF_PER_CALL) * sets,
     codingCount: clamp(fields.codingCount, 0, MAX_CODING_PER_CALL) * sets,
     sets,
     part: 1,
     partCount: 1,
   })
-  const questions = sets > 1 ? [...splitIntoSets(mcqs, sets), ...splitIntoSets(coding, sets)] : [...mcqs, ...coding]
+  const questions = sets > 1 ? [...splitIntoSets(mcqs, sets), ...splitIntoSets(trueFalse, sets), ...splitIntoSets(coding, sets)] : [...mcqs, ...trueFalse, ...coding]
   return NextResponse.json({ questions: questions.map(toDraft), sets: sets > 1 ? Array.from({ length: sets }, (_, i) => setName(i)) : [] })
 })
 
@@ -74,7 +75,7 @@ async function readFields(request: Request) {
 function commonFields(text: (name: string) => string | undefined) {
   return {
     topic: text('topic') ?? '', description: text('description') ?? '', sourceText: text('sourceText') ?? '', bloomMode: text('bloomMode') ?? '',
-    count: text('count'), mcqCount: text('mcqCount'), codingCount: text('codingCount'), sets: text('sets'),
+    count: text('count'), mcqCount: text('mcqCount'), tfCount: text('tfCount'), codingCount: text('codingCount'), sets: text('sets'),
     levels: Object.fromEntries(BLOOM_LEVELS.map(level => [level, text(level)])) as Record<string, string | undefined>,
   }
 }

@@ -93,7 +93,8 @@ export type MyLevel = {
 
 export type SolveView = {
   subject: { id: string; title: string; code: string }
-  experiment: { id: string; order: number; title: string; status: 'solved' | 'open' }
+  /** 'locked': an earlier experiment isn't solved yet, so this one can be read but not solved. */
+  experiment: { id: string; order: number; title: string; status: 'solved' | 'open' | 'locked' }
   problem: Problem
   practiceProblem: { id: string; source: 'faculty' | 'ai' } | null
   lastCode: { language: string; code: string } | null
@@ -111,6 +112,52 @@ export type SubmitResult = {
   compileError: string
   sampleResults: { testCase: number; passed: boolean; input: string; expected: string; actual: string }[]
   unlocked: { id: string; order: number; title: string } | null
+}
+
+/** A background AI job writing experiments for a practical (GET /api/practicals/:id/jobs). */
+export type PracticalJob = {
+  id: string
+  kind: 'import' | 'draft'
+  status: 'running' | 'finished' | 'cancelled'
+  level: string
+  total: number
+  done: number
+  failed: number
+  /** The experiment being written now. */
+  current: string
+  nextRetryAt: string | null
+  lastError: string
+  items: { title: string; status: 'pending' | 'running' | 'done' | 'failed'; error: string; order: number | null }[]
+  createdAt: string
+  finishedAt: string | null
+}
+
+export type ReportStatus = 'solved' | 'not_solved' | 'compile_error' | 'not_submitted' | 'locked'
+
+/** One experiment (or practice problem) in a practical report: the problem, the student's code and how it ran. */
+export type ReportEntry = {
+  order: number
+  title: string
+  practice: { title: string; source: 'faculty' | 'ai' } | null
+  /** Null when the student may not see it yet (a locked experiment in their own report). */
+  problem: { text: string; inputFormat: string; outputFormat: string; constraints: string; samples: Sample[] } | null
+  status: ReportStatus
+  attempts: number
+  submittedAt: string | null
+  solvedAt: string | null
+  score: { samplesPassed: number; samplesTotal: number; hiddenPassed: number; hiddenTotal: number } | null
+  /** The latest submission's code, or the student's unsubmitted draft. */
+  code: { language: string; text: string; draft: boolean } | null
+  /** The code run on the sample inputs. `note` says why there is no output when there is none. */
+  execution: { compileError: string; results: SubmitResult['sampleResults']; note: string }
+}
+
+/** Everything the practical PDF needs: who, which practical, and each experiment's work. */
+export type PracticalReport = {
+  generatedAt: string
+  student: { name: string; rollNumber: string; email: string; classLabel: string }
+  subject: { title: string; code: string }
+  entries: ReportEntry[]
 }
 
 /** A problem in the shape the question editor edits. */

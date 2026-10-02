@@ -37,11 +37,8 @@ function loadFonts() {
   return fontCache
 }
 
-/**
- * Builds a printable A4 question paper and downloads it. With `withAnswers`, correct options are
- * ticked, explanations are included and an answer key is added at the end.
- */
-export async function downloadPaperPdf(meta: PaperMeta, questions: BankQuestion[], { withAnswers = false } = {}) {
+/** A blank A4 document (mm) with the DejaVu fonts registered as 'DejaVu' (normal, bold) and 'DejaVuMono'. */
+export async function newPdf() {
   const [{ jsPDF }, fonts] = await Promise.all([import('jspdf'), loadFonts()])
   const doc: JsPDF = new jsPDF({ unit: 'mm', format: 'a4' })
   doc.addFileToVFS('DejaVuSans.ttf', fonts['DejaVuSans.ttf'])
@@ -50,6 +47,15 @@ export async function downloadPaperPdf(meta: PaperMeta, questions: BankQuestion[
   doc.addFont('DejaVuSans-Bold.ttf', 'DejaVu', 'bold')
   doc.addFileToVFS('DejaVuSansMono.ttf', fonts['DejaVuSansMono.ttf'])
   doc.addFont('DejaVuSansMono.ttf', 'DejaVuMono', 'normal')
+  return doc
+}
+
+/**
+ * Builds a printable A4 question paper and downloads it. With `withAnswers`, correct options are
+ * ticked, explanations are included and an answer key is added at the end.
+ */
+export async function downloadPaperPdf(meta: PaperMeta, questions: BankQuestion[], { withAnswers = false } = {}) {
+  const doc = await newPdf()
 
   const width = PAGE.w - PAGE.margin * 2
   let y = PAGE.margin

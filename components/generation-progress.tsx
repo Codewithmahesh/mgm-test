@@ -14,6 +14,8 @@ import type { GenerationPlan } from '@/components/add-questions'
 export type GenerationRequest = {
   /** MCQs at each Bloom level, all sets together. */
   levels: number[]
+  /** True/False questions in total. */
+  tf?: number
   coding: number
   sets: string[]
   /** File names (or "your notes") the questions come from. */
@@ -61,13 +63,14 @@ export function GenerationProgress({ jobId, request, onReady, onBackground, onSt
   callbacks.current = { onReady, onBackground, onStop }
 
   const mcqTotal = request.levels.reduce((a, b) => a + b, 0)
-  const total = mcqTotal + request.coding
+  const tfTotal = request.tf ?? 0
+  const total = mcqTotal + tfTotal + request.coding
   // Rough time to expect: parts run four at a time; longer parts and coding problems take longer.
   const expected = useMemo(() => {
-    const parts = Math.max(1, Math.ceil(mcqTotal / 60), Math.ceil(request.coding / 10))
-    const perPart = 25 + 0.6 * Math.min(mcqTotal / parts, 60) + 6 * Math.min(request.coding / parts, 10)
+    const parts = Math.max(1, Math.ceil(mcqTotal / 60), Math.ceil(tfTotal / 60), Math.ceil(request.coding / 10))
+    const perPart = 25 + 0.6 * Math.min(mcqTotal / parts, 60) + 0.4 * Math.min(tfTotal / parts, 60) + 6 * Math.min(request.coding / parts, 10)
     return Math.ceil(parts / PARALLEL) * perPart
-  }, [mcqTotal, request.coding])
+  }, [mcqTotal, tfTotal, request.coding])
   const [slowAt, setSlowAt] = useState(() => Math.max(60, Math.round(expected * 1.5)))
 
   const email = teacher?.email ?? 'your email'
@@ -151,7 +154,7 @@ export function GenerationProgress({ jobId, request, onReady, onBackground, onSt
   }, [])
 
   // Progress: finished parts, eased forward by the time so far so a single long part doesn't look stuck.
-  const parts = job?.progress.total ?? Math.max(1, Math.ceil(mcqTotal / 60), Math.ceil(request.coding / 10))
+  const parts = job?.progress.total ?? Math.max(1, Math.ceil(mcqTotal / 60), Math.ceil(tfTotal / 60), Math.ceil(request.coding / 10))
   const done = (job?.progress.done ?? 0) + (job?.progress.failed ?? 0)
   const estimate = 0.9 * (1 - Math.exp((-1.6 * elapsed) / Math.max(30, expected)))
   const percent = Math.min(97, Math.round(Math.max(done / parts, estimate) * 100))
@@ -170,6 +173,7 @@ export function GenerationProgress({ jobId, request, onReady, onBackground, onSt
     const list: string[] = []
     BLOOM_LEVELS.forEach((level, i) => { if (request.levels[i]) list.push(`Writing L${BLOOM_INFO[level].n} ${BLOOM_INFO[level].label} questions: ${BLOOM_INFO[level].hint.toLowerCase()}`) })
     if (mcqTotal) list.push('Making sure every MCQ has exactly one correct answer', 'Writing believable wrong options from common mistakes', 'Varying where the correct option sits')
+    if (tfTotal) list.push('Writing clear True/False statements, half true and half false')
     if (request.coding) list.push('Designing coding problems with clear input and output formats', 'Working out the exact output of every sample test')
     if (range) list.push(`Keeping sets ${range} equally difficult`)
     request.sources.slice(0, 3).forEach(source => list.push(`Pulling key ideas from ${source}`))
@@ -177,7 +181,8 @@ export function GenerationProgress({ jobId, request, onReady, onBackground, onSt
   }, [request, mcqTotal, range])
   const message = messages[Math.floor(elapsed / 3) % messages.length]
 
-  const writtenMcq = written.filter(q => q.type !== 'coding')
+  const writtenMcq = written.filter(q => q.type === 'mcq')
+  const writtenTf = written.filter(q => q.type === 'tf')
   const writtenCoding = written.length - writtenMcq.length
   const recent = written.slice(-2).reverse()
   const slow = elapsed >= slowAt && !handingOff
@@ -231,6 +236,7 @@ export function GenerationProgress({ jobId, request, onReady, onBackground, onSt
       <div className="flex flex-col gap-2 rounded-md bg-muted/40 px-3 py-2">
         <div className="flex flex-wrap gap-x-5 gap-y-1.5">
           {mcqTotal > 0 && <Counter label="MCQs" value={writtenMcq.length} total={mcqTotal} />}
+          {tfTotal > 0 && <Counter label="True / False" value={writtenTf.length} total={tfTotal} icon={ListChecks} />}
           {request.coding > 0 && <Counter label="Coding" value={writtenCoding} total={request.coding} icon={Code2} />}
         </div>
         {mcqTotal > 0 && (

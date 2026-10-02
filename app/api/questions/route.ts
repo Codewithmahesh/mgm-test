@@ -56,7 +56,8 @@ export const POST = handler(async (request: Request) => {
   const saved = await Question.insertMany(docs)
   if (roomId) await refreshPool(roomId)
   const coding = docs.filter(q => q.type === 'coding').length
-  await notifyQuestionsAdded(teacher, roomId ? await ExamRoom.findById(roomId).select('-pool').lean() : null, { mcq: docs.length - coding, coding, source })
+  const tf = docs.filter(q => q.type === 'tf').length
+  await notifyQuestionsAdded(teacher, roomId ? await ExamRoom.findById(roomId).select('-pool').lean() : null, { mcq: docs.length - coding - tf, tf, coding, source })
   return NextResponse.json({ saved: saved.length, errors, questions: saved.map(q => serializeQuestion(q.toObject())) }, { status: 201 })
 })
 

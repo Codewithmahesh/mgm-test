@@ -42,6 +42,10 @@ export type Room = {
   instructions: string
   code: string
   questionsPerStudent: number
+  /** True/False per student. */
+  tfQuestions: number
+  /** False on rooms made before True/False had its own count: there True/False questions count as MCQs. */
+  tfSeparate: boolean
   codingQuestions: number
   marksPerQuestion: number
   negativeMarks: number
@@ -60,6 +64,7 @@ export type Room = {
   updatedAt: string
   poolSize: number
   mcqPoolSize: number
+  tfPoolSize: number
   codingPoolSize: number
   joined: number
   submitted: number
@@ -137,6 +142,15 @@ export const STARTER_CODE: Record<string, string> = {
   java: 'import java.util.*;\nimport java.io.*;\n\npublic class Main {\n    public static void main(String[] args) throws IOException {\n        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));\n        // your code goes here\n    }\n}\n',
   python: 'import sys\n\ndef main():\n    data = sys.stdin.read().split()\n    # your code goes here\n\nif __name__ == "__main__":\n    main()\n',
   javascript: "const lines = require('fs').readFileSync(0, 'utf8').trim().split('\\n');\n\n// your code goes here\n",
+}
+
+/** What each student's paper has, e.g. "20 MCQ + 5 True/False + 2 coding". */
+export function paperSummary(room: { questionsPerStudent: number; tfQuestions?: number; codingQuestions?: number }) {
+  return [
+    `${room.questionsPerStudent} MCQ`,
+    room.tfQuestions ? `${room.tfQuestions} True/False` : '',
+    room.codingQuestions ? `${room.codingQuestions} coding` : '',
+  ].filter(Boolean).join(' + ')
 }
 
 export function languageLabel(value: string) {

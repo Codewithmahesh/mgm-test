@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { HttpError, handler, rateLimit, requireTeacher } from '@/lib/auth'
 import { BLOOM_LEVELS, setNames, splitByShares, type BloomLevel } from '@/lib/bloom'
-import { MAX_SETS, MAX_TOTAL_MCQ, createJob, jobSummary } from '@/lib/generation-jobs'
+import { MAX_SETS, MAX_TOTAL_MCQ, MAX_TOTAL_TF, createJob, jobSummary } from '@/lib/generation-jobs'
 import { ExamRoom, GenerationJob } from '@/lib/models'
 import { findTeacherRoom } from '@/lib/rooms'
 import { readSourceFiles } from '@/lib/source-files'
@@ -17,7 +17,7 @@ export const GET = handler(async () => {
 
 /**
  * POST /api/generation-jobs (multipart) — starts an AI generation. Fields: topic, description, sourceText,
- * files (PDF, .doc, .docx, .tex; repeatable), mcqCount and codingCount (per set), sets (1-20),
+ * files (PDF, .doc, .docx, .tex; repeatable), mcqCount, tfCount and codingCount (per set), sets (1-20),
  * bloomMode (mixed | custom | one Bloom level) and for custom the per-level MCQ counts per set,
  * room (optional), bloomPlan (JSON) and applyToRoom, kept for when the drafts are saved.
  * The browser then drives it with POST /api/generation-jobs/:id/run, or hands it to the server.
@@ -39,6 +39,7 @@ export const POST = handler(async (request: Request) => {
     : single ? BLOOM_LEVELS.map(level => (level === single ? mcqPerSet : 0))
     : splitByShares(mcqPerSet)
   const codingPerSet = int('codingCount', 100)
+  const tfPerSet = int('tfCount', MAX_TOTAL_TF)
   let bloomPlan: unknown = null
   try { bloomPlan = text('bloomPlan') ? JSON.parse(text('bloomPlan')) : null } catch { throw new HttpError(400, "Invalid Bloom's level plan.") }
 
@@ -48,8 +49,8 @@ export const POST = handler(async (request: Request) => {
   const title = (topic || files.map(f => f.name).join(', ') || sourceText || description).replace(/\s+/g, ' ').slice(0, 120)
 
   const job = await createJob({
-    teacher: teacher._id, room: room?._id ?? null, title, topic, description, sourceText, files, levels, singleLevel: single, codingPerSet, sets,
-    plan: { sets: sets > 1 ? setNames(sets) : [], mcqPerSet: levels.reduce((a, b) => a + b, 0), codingPerSet, bloomPlan, applyToRoom: text('applyToRoom') === 'true' },
+    teacher: teacher._id, room: room?._id ?? null, title, topic, description, sourceText, files, levels, singleLevel: single, tfPerSet, codingPerSet, sets,
+    plan: { sets: sets > 1 ? setNames(sets) : [], mcqPerSet: levels.reduce((a, b) => a + b, 0), tfPerSet, codingPerSet, bloomPlan, applyToRoom: text('applyToRoom') === 'true' },
   })
   return NextResponse.json({ job: jobSummary(job, room) }, { status: 201 })
 })

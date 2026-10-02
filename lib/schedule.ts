@@ -22,6 +22,7 @@ type ScheduledRoom = {
   code: string
   durationMinutes: number
   questionsPerStudent: number
+  tfQuestions?: number | null
   codingQuestions?: number | null
   startsAt?: Date | null
   autoOpen?: boolean | null
@@ -35,7 +36,7 @@ const minutesUntil = (date: Date) => Math.max(0, Math.round((date.getTime() - Da
 const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`
 
 function roomDetails(room: ScheduledRoom): [string, string][] {
-  const paper = [room.questionsPerStudent ? plural(room.questionsPerStudent, 'MCQ') : '', room.codingQuestions ? plural(room.codingQuestions, 'coding problem') : ''].filter(Boolean).join(' + ')
+  const paper = [room.questionsPerStudent ? plural(room.questionsPerStudent, 'MCQ') : '', room.tfQuestions ? `${room.tfQuestions} True/False` : '', room.codingQuestions ? plural(room.codingQuestions, 'coding problem') : ''].filter(Boolean).join(' + ')
   return [
     ['Exam', room.title],
     ['Room code', room.code],
@@ -228,11 +229,11 @@ export async function notifyExamEnded(
 export async function notifyQuestionsAdded(
   teacher: TeacherInfo,
   room: (ScheduledRoom & { status: string }) | null,
-  added: { mcq: number; coding: number; source: string },
+  added: { mcq: number; tf?: number; coding: number; source: string },
 ) {
   try {
-    const total = added.mcq + added.coding
-    const what = [added.mcq ? plural(added.mcq, 'MCQ') : '', added.coding ? plural(added.coding, 'coding problem') : ''].filter(Boolean).join(' + ')
+    const total = added.mcq + (added.tf ?? 0) + added.coding
+    const what = [added.mcq ? plural(added.mcq, 'MCQ') : '', added.tf ? `${added.tf} True/False` : '', added.coding ? plural(added.coding, 'coding problem') : ''].filter(Boolean).join(' + ')
     const from = { ai: 'Generated with AI', csv: 'Imported from CSV', manual: 'Written manually' }[added.source] ?? 'Added'
     const problem = room && room.status !== 'closed' ? await openProblem(room) : null
     await send(teacher, `${plural(total, 'question')} added${room ? ` to ${room.title}` : ' to your question bank'}`, {

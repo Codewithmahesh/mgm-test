@@ -18,7 +18,7 @@ import { Alert, Checkbox } from '@/components/ui/form'
 import { useFeedback } from '@/components/ui/overlay'
 import { api, clock, downloadFile, errorMessage, formatDate, formatDuration, relativeTime, type BankQuestion, type Classroom, type DraftQuestion, type Room } from '@/lib/api'
 import { BLOOM_INFO, BLOOM_LEVELS, paperMarks, setNames } from '@/lib/bloom'
-import { activeSets, poolProblems, setLabels, setPool } from '@/lib/paper-rules'
+import { activeSets, paperKind, poolProblems, setLabels, setPool } from '@/lib/paper-rules'
 import { BloomBadge } from '@/components/common'
 import { useLatestRequest } from '@/lib/use-latest'
 import { cn } from '@/lib/utils'
@@ -39,6 +39,7 @@ export function OverviewTab({ room, onGo }: { room: Room; onGo: (tab: 'questions
   const writing = room.joined - room.submitted
   const totalMarks = paperMarks(room).total
   const mcqShort = room.questionsPerStudent > room.mcqPoolSize
+  const tfShort = room.tfQuestions > room.tfPoolSize
   const codingShort = room.codingQuestions > room.codingPoolSize
 
   return (
@@ -57,11 +58,11 @@ export function OverviewTab({ room, onGo }: { room: Room; onGo: (tab: 'questions
         </Alert>
       )}
 
-      {(mcqShort || codingShort || room.poolSize === 0) && (
+      {(mcqShort || tfShort || codingShort || room.poolSize === 0) && (
         <Alert tone="warning" className="flex items-start gap-2">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>
-            {room.poolSize === 0 ? 'This room has no questions yet.' : <>The pool is smaller than one paper:{mcqShort && ` ${room.mcqPoolSize}/${room.questionsPerStudent} MCQs`}{codingShort && ` ${room.codingPoolSize}/${room.codingQuestions} coding problems`}.</>}{' '}
+            {room.poolSize === 0 ? 'This room has no questions yet.' : <>The pool is smaller than one paper:{mcqShort && ` ${room.mcqPoolSize}/${room.questionsPerStudent} MCQs`}{tfShort && ` ${room.tfPoolSize}/${room.tfQuestions} True/False`}{codingShort && ` ${room.codingPoolSize}/${room.codingQuestions} coding problems`}.</>}{' '}
             <button onClick={() => onGo('questions')} className="font-semibold underline">Add questions</button> before opening the room.
           </span>
         </Alert>
@@ -87,7 +88,8 @@ export function OverviewTab({ room, onGo }: { room: Room; onGo: (tab: 'questions
           <dl className="grid grid-cols-2 gap-x-6 gap-y-4 p-5 text-[13px]">
             <Detail icon={Clock3} label="Duration" value={`${room.durationMinutes} minutes`} />
             <Detail icon={Trophy} label="Total marks" value={totalMarks} />
-            <Detail icon={ListChecks} label="MCQs per student" value={room.bloomPlan.length ? `${room.questionsPerStudent} · ${paperMarks(room).mcq} marks${room.negativeMarks ? ` (−${room.negativeMarks} wrong)` : ''}` : `${room.questionsPerStudent} × ${room.marksPerQuestion}${room.negativeMarks ? ` (−${room.negativeMarks})` : ''}`} />
+            <Detail icon={ListChecks} label="MCQs per student" value={room.bloomPlan.length ? `${room.questionsPerStudent} · ${paperMarks(room).mcq - room.tfQuestions * room.marksPerQuestion} marks${room.negativeMarks ? ` (−${room.negativeMarks} wrong)` : ''}` : `${room.questionsPerStudent} × ${room.marksPerQuestion}${room.negativeMarks ? ` (−${room.negativeMarks})` : ''}`} />
+            {room.tfQuestions > 0 && <Detail icon={ListChecks} label="True / False per student" value={`${room.tfQuestions} × ${room.marksPerQuestion}${room.negativeMarks ? ` (−${room.negativeMarks})` : ''}`} />}
             <Detail icon={Code2} label="Coding per student" value={room.codingQuestions ? `${room.codingQuestions} × ${room.codingMarks}` : 'None'} />
             <Detail icon={room.paperMode === 'sets' ? Layers : Shuffle} label="Papers" value={room.paperMode === 'sets' ? `${room.setCount} sets (${setNames(room.setCount).join(', ')}), shown after submitting` : 'Random from the pool'} />
             <Detail icon={Scale} label="Bloom's levels" value={room.bloomPlan.length ? room.bloomPlan.map(row => `L${BLOOM_INFO[row.level].n}×${row.count} @${row.marks}`).join(' · ') : 'Balanced automatically'} />
@@ -122,7 +124,9 @@ export function QuestionsTab({ room, questions, onChanged, onRemoved, autoOpen }
   const { toast, confirm } = useFeedback()
   const [adding, setAdding] = useState<AddMethod | null>(autoOpen ? 'ai' : null)
   const [editing, setEditing] = useState<BankQuestion | null>(null)
-  const mcqs = questions.filter(q => q.type !== 'coding')
+  // On older rooms True/False questions are dealt as MCQs, so they're listed with them.
+  const mcqs = questions.filter(q => paperKind(paperConfig(room), q.type) === 'mcq')
+  const trueFalse = questions.filter(q => paperKind(paperConfig(room), q.type) === 'tf')
   const coding = questions.filter(q => q.type === 'coding')
 
   async function remove(question: BankQuestion) {
@@ -158,8 +162,9 @@ export function QuestionsTab({ room, questions, onChanged, onRemoved, autoOpen }
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_auto] md:items-stretch">
+      <div className={cn('grid grid-cols-1 gap-4 md:items-stretch', room.tfSeparate ? 'md:grid-cols-[1fr_1fr_1fr_auto]' : 'md:grid-cols-[1fr_1fr_auto]')}>
         <PoolMeter label="MCQ pool" have={mcqs.length} need={room.questionsPerStudent} icon={ListChecks} />
+        {room.tfSeparate && <PoolMeter label="True / False pool" have={trueFalse.length} need={room.tfQuestions} icon={ListChecks} />}
         <PoolMeter label="Coding pool" have={coding.length} need={room.codingQuestions} icon={Code2} />
         <Card className="flex flex-col justify-center gap-2 p-4">
           <Button onClick={() => setAdding('ai')}><Plus />Add questions</Button>
@@ -186,19 +191,24 @@ export function QuestionsTab({ room, questions, onChanged, onRemoved, autoOpen }
       ) : (
         <>
           {mcqs.length > 0 && <Card><CardHeader title={`Multiple choice · ${mcqs.length}`} description={activeSets(room).length ? `Each student gets ${room.questionsPerStudent} from their set, in random order.` : `Each student gets ${Math.min(room.questionsPerStudent, mcqs.length)} of these in random order, with the same Bloom's level mix.`} /><div>{mcqs.map((q, i) => <QuestionCard key={q.id} question={q} index={i} actions={actions(q)} />)}</div></Card>}
+          {trueFalse.length > 0 && <Card><CardHeader title={`True / False · ${trueFalse.length}`} description={activeSets(room).length ? `Each student gets ${room.tfQuestions} from their set, mixed in with the MCQs.` : `Each student gets ${Math.min(room.tfQuestions, trueFalse.length)} of these, mixed in with the MCQs.`} /><div>{trueFalse.map((q, i) => <QuestionCard key={q.id} question={q} index={i} actions={actions(q)} />)}</div></Card>}
           {coding.length > 0 && <Card><CardHeader title={`Coding problems · ${coding.length}`} description={`Each student gets ${Math.min(room.codingQuestions, coding.length)} of these.`} /><div>{coding.map((q, i) => <QuestionCard key={q.id} question={q} index={i} actions={actions(q)} />)}</div></Card>}
         </>
       )}
 
-      <AddQuestions open={adding !== null} initialMethod={adding ?? 'ai'} onClose={() => setAdding(null)} roomId={room.id} defaults={{ mcq: room.questionsPerStudent, coding: room.codingQuestions, marks: room.marksPerQuestion, bloomPlan: room.bloomPlan, setCount: room.setCount }} onSaved={onChanged} />
+      <AddQuestions open={adding !== null} initialMethod={adding ?? 'ai'} onClose={() => setAdding(null)} roomId={room.id} defaults={{ mcq: room.questionsPerStudent, tf: room.tfSeparate ? room.tfQuestions : 0, coding: room.codingQuestions, marks: room.marksPerQuestion, bloomPlan: room.bloomPlan, setCount: room.setCount }} onSaved={onChanged} />
       <QuestionEditor open={Boolean(editing)} initial={editing} onClose={() => setEditing(null)} onSave={save} />
     </div>
   )
 }
 
-const levelCounts = (questions: BankQuestion[]) => {
-  const mcq = questions.filter(q => q.type !== 'coding')
-  return { byLevel: BLOOM_LEVELS.map(level => mcq.filter(q => q.bloom === level).length), unrated: mcq.filter(q => !q.bloom).length, total: mcq.length, coding: questions.length - mcq.length }
+const levelCounts = (questions: BankQuestion[], room: { tfQuestions?: number | null; tfSeparate?: boolean } = {}) => {
+  const config = { tfQuestions: room.tfSeparate ? room.tfQuestions ?? 0 : null }
+  const mcq = questions.filter(q => paperKind(config, q.type) === 'mcq')
+  return {
+    byLevel: BLOOM_LEVELS.map(level => mcq.filter(q => q.bloom === level).length), unrated: mcq.filter(q => !q.bloom).length, total: mcq.length,
+    tf: questions.filter(q => paperKind(config, q.type) === 'tf').length, coding: questions.filter(q => q.type === 'coding').length,
+  }
 }
 
 function LevelLine({ questions }: { questions: BankQuestion[] }) {
@@ -208,10 +218,13 @@ function LevelLine({ questions }: { questions: BankQuestion[] }) {
   return <>{parts.join(' · ') || 'No MCQs'}</>
 }
 
+/** The room's paper settings as the shared rules read them (null True/False count on older rooms). */
+const paperConfig = (room: Room) => ({ ...room, tfQuestions: room.tfSeparate ? room.tfQuestions : null })
+
 /** How papers are built from this pool, per-set / per-level counts, and anything that would make papers unequal. */
 function PaperPlan({ room, questions }: { room: Room; questions: BankQuestion[] }) {
   const sets = activeSets(room)
-  const problems = poolProblems(room, questions)
+  const problems = poolProblems(paperConfig(room), questions)
   const extraSets = setLabels(questions).filter(label => !sets.includes(label))
   const common = questions.filter(q => !q.set)
   const marks = paperMarks(room)
@@ -232,11 +245,11 @@ function PaperPlan({ room, questions }: { room: Room; questions: BankQuestion[] 
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {sets.map(set => {
               const items = setPool(questions, set)
-              const c = levelCounts(items)
-              const ready = c.total >= room.questionsPerStudent && c.coding >= room.codingQuestions
+              const c = levelCounts(items, room)
+              const ready = c.total >= room.questionsPerStudent && c.tf >= room.tfQuestions && c.coding >= room.codingQuestions
               return (
                 <div key={set} className={cn('rounded-lg border px-3 py-2.5', ready ? 'border-border' : 'border-warning-border bg-warning-soft/40')}>
-                  <p className="text-sm font-semibold">Set {set} <span className="font-normal text-muted-foreground">· {c.total}/{room.questionsPerStudent} MCQ{room.codingQuestions ? ` · ${c.coding}/${room.codingQuestions} coding` : ''}</span></p>
+                  <p className="text-sm font-semibold">Set {set} <span className="font-normal text-muted-foreground">· {c.total}/{room.questionsPerStudent} MCQ{room.tfQuestions ? ` · ${c.tf}/${room.tfQuestions} T/F` : ''}{room.codingQuestions ? ` · ${c.coding}/${room.codingQuestions} coding` : ''}</span></p>
                   <p className="mt-0.5 text-xs text-muted-foreground"><LevelLine questions={items} /></p>
                 </div>
               )
@@ -433,7 +446,7 @@ export function SettingsTab({ room, onSaved, onDeleted }: { room: Room; onSaved:
   }
   return (
     <div className="flex flex-col gap-6">
-      <RoomForm initial={roomToValues(room)} submitLabel="Save changes" pool={{ mcq: room.mcqPoolSize, coding: room.codingPoolSize }}
+      <RoomForm initial={roomToValues(room)} submitLabel="Save changes" pool={{ mcq: room.mcqPoolSize, tf: room.tfPoolSize, coding: room.codingPoolSize }}
         onSubmit={async values => {
           const data = await api<{ room: Room }>(`/api/rooms/${room.id}`, { method: 'PATCH', body: valuesToPayload(values) })
           toast('Settings saved.')

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { HttpError, handler, rateLimit, readJson, requireTeacher } from '@/lib/auth'
-import { Experiment, PracticeProblem } from '@/lib/models'
-import { findSubjectExperiment, findTeacherSubject, generateProblem, parseLevel, practicalContext, serializeProblem } from '@/lib/practicals'
+import { PracticeProblem } from '@/lib/models'
+import { addGeneratedExperiment, findSubjectExperiment, findTeacherSubject, generateProblem, parseLevel, practicalContext, serializeProblem } from '@/lib/practicals'
 
 export const maxDuration = 120
 
@@ -34,10 +34,8 @@ export const POST = handler(async (request: Request, context: Context) => {
   }
 
   if (!topic && !description) throw new HttpError(400, 'Enter the experiment topic or its aim first.')
-  const problem = await generateProblem({ topic, description, level, context: ctx, avoid: ctx.experiments.map(e => e.title) })
-  if (mode !== 'experiment') return NextResponse.json({ problem })
+  if (mode !== 'experiment') return NextResponse.json({ problem: await generateProblem({ topic, description, level, context: ctx, avoid: ctx.experiments.map(e => e.title) }) })
 
-  const last = await Experiment.findOne({ subject: subject._id }).sort({ order: -1 }).select('order').lean()
-  const experiment = await Experiment.create({ ...problem, subject: subject._id, teacher: teacher._id, order: (last?.order ?? 0) + 1 })
+  const experiment = await addGeneratedExperiment(subject, teacher._id, { topic, description, level })
   return NextResponse.json({ experiment: { ...serializeProblem(experiment.toObject(), { withHidden: true }), order: experiment.order, poolSize: 0, aiPracticeCount: 0 } }, { status: 201 })
 })

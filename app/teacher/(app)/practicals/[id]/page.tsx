@@ -3,17 +3,18 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, Code2, FlaskConical, Layers, Lock, MoreHorizontal, Pencil, Plus, Settings, Sparkles, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, Code2, FileDown, FlaskConical, Layers, Lock, MoreHorizontal, Pencil, Plus, Settings, Sparkles, Trash2, Upload } from 'lucide-react'
 import { CodeEditor } from '@/components/code-editor'
-import { AiDraftDialog, ImportListDialog, LevelPicker, type Level } from '@/components/practical-ai'
+import { AiDraftDialog, ImportListDialog, LevelPicker, PracticalJobsBanner, type Level } from '@/components/practical-ai'
 import { PracticalSubjectDialog } from '@/components/practical-form'
 import { QuestionEditor } from '@/components/question-editor'
 import { Button } from '@/components/ui/button'
 import { Badge, Card, EmptyState, PageHeader, PageLoader, StatCard } from '@/components/ui/card'
-import { Alert, Input } from '@/components/ui/form'
+import { Alert, Input, Select } from '@/components/ui/form'
 import { Dialog, Menu, MenuItem, Tabs, useFeedback } from '@/components/ui/overlay'
 import { api, errorMessage, languageLabel, relativeTime, type DraftQuestion } from '@/lib/api'
-import { draftToProblem, problemToDraft, type FacultyExperiment, type PracticalSubject, type Problem, type Progress, type ProgressCell, type StudentSubmission } from '@/lib/practical-types'
+import { downloadPracticalPdf } from '@/lib/practical-pdf'
+import { draftToProblem, problemToDraft, type FacultyExperiment, type PracticalSubject, type Problem, type Progress, type PracticalReport, type ProgressCell, type StudentSubmission } from '@/lib/practical-types'
 import { cn } from '@/lib/utils'
 
 type Tab = 'experiments' | 'progress'
@@ -34,6 +35,8 @@ export default function PracticalPage() {
   const [editing, setEditing] = useState<Editing | null>(null)
   const [drafting, setDrafting] = useState(false)
   const [importing, setImporting] = useState(false)
+  // Bumped when a background job starts, so its banner shows right away.
+  const [jobsKey, setJobsKey] = useState(0)
   const [poolFor, setPoolFor] = useState<FacultyExperiment | null>(null)
 
   const load = useCallback(() => api<{ subject: PracticalSubject; experiments: FacultyExperiment[] }>(`/api/practicals/${id}`)
@@ -108,6 +111,7 @@ export default function PracticalPage() {
               <Button variant="outline" onClick={() => setDrafting(true)}><Sparkles />Write one with AI</Button>
               <Button variant="outline" onClick={() => setEditing({ kind: 'experiment', experiment: null, draft: null })}><Plus />Write it yourself</Button>
             </div>
+            <PracticalJobsBanner subjectId={id} refreshKey={jobsKey} onAdded={() => void load()} />
             {experiments.length === 0 ? (
               <EmptyState icon={FlaskConical} title="No experiments yet" description="Import your practical list from a photo, PDF or Word file, or add experiments one by one in the order students should solve them. Each unlocks when every sample test of the one before passes."
                 action={<Button onClick={() => setImporting(true)}><Upload />Import practical list</Button>} />
@@ -148,8 +152,10 @@ export default function PracticalPage() {
       <QuestionEditor open={Boolean(editing)} problemOnly initial={editorInitial} onClose={() => setEditing(null)} onSave={saveProblem}
         title={editing?.kind === 'practice' ? (editing.problem ? 'Edit practice problem' : `Practice problem for experiment ${editing.experiment.order}`) : editing?.experiment ? `Edit experiment ${editing.experiment.order}` : 'New experiment'}
         saveLabel={editing?.kind === 'practice' ? 'Save problem' : 'Save experiment'} />
-      <AiDraftDialog subjectId={id} experiments={experiments} open={drafting} onClose={() => setDrafting(false)} onDraft={problem => { setDrafting(false); setEditing({ kind: 'experiment', experiment: null, draft: problemToDraft(problem) }) }} />
-      <ImportListDialog subjectId={id} open={importing} onClose={() => setImporting(false)} onAdded={() => { toast('Experiments added.'); void load() }} />
+      <AiDraftDialog subjectId={id} experiments={experiments} open={drafting} onClose={() => setDrafting(false)} onDraft={problem => { setDrafting(false); setEditing({ kind: 'experiment', experiment: null, draft: problemToDraft(problem) }) }}
+        onBackground={() => { setDrafting(false); setJobsKey(k => k + 1); toast("Writing it in the background. We've emailed you, and will again when it's added.") }} />
+      <ImportListDialog subjectId={id} open={importing} onClose={() => setImporting(false)} onAdded={() => { toast('Experiments added.'); void load() }}
+        onBackground={() => { setImporting(false); setJobsKey(k => k + 1); toast("Running in the background. We've emailed you, and will again when it's done.") }} />
       <PoolDialog subjectId={id} experiment={poolFor} onClose={() => { setPoolFor(null); void load() }} onEdit={(experiment, problem) => setEditing({ kind: 'practice', experiment, problem })} editing={Boolean(editing)} />
       <PracticalSubjectDialog open={settingsOpen} initial={subject} onClose={() => setSettingsOpen(false)} onSaved={s => { setSubject(s); toast('Practical saved.') }} />
     </>
@@ -304,16 +310,29 @@ function ProgressTab({ subjectId }: { subjectId: string }) {
           </tbody>
         </table>
       </div>
-      <SubmissionsDialog subjectId={subjectId} student={student} onClose={() => setStudent(null)} />
+      <SubmissionsDialog subjectId={subjectId} experiments={progress.experiments} student={student} onClose={() => setStudent(null)} />
     </div>
   )
 }
 
-/** One student's submissions in this practical, newest first, with the code. */
-function SubmissionsDialog({ subjectId, student, onClose }: { subjectId: string; student: { id: string; name: string } | null; onClose: () => void }) {
+/** One student's submissions in this practical, newest first, with the code, and their practical report as a PDF. */
+function SubmissionsDialog({ subjectId, experiments, student, onClose }: { subjectId: string; experiments: Progress['experiments']; student: { id: string; name: string } | null; onClose: () => void }) {
+  const { toast } = useFeedback()
   const [submissions, setSubmissions] = useState<StudentSubmission[] | null>(null)
   const [error, setError] = useState('')
   const [open, setOpen] = useState<string | null>(null)
+  const [reportFor, setReportFor] = useState('all')
+  const [exporting, setExporting] = useState(false)
+
+  /** Works for any student and experiment: unsubmitted or failing work still prints, with its status. */
+  async function downloadReport() {
+    if (!student) return
+    setExporting(true)
+    try {
+      const { report } = await api<{ report: PracticalReport }>(`/api/practicals/${subjectId}/students/${student.id}/report${reportFor === 'all' ? '' : `?experiment=${reportFor}`}`)
+      await downloadPracticalPdf(report)
+    } catch (err) { toast(errorMessage(err, 'Could not make the PDF.'), 'error') } finally { setExporting(false) }
+  }
   useEffect(() => {
     setSubmissions(null)
     setError('')
@@ -322,6 +341,14 @@ function SubmissionsDialog({ subjectId, student, onClose }: { subjectId: string;
 
   return (
     <Dialog open={Boolean(student)} onClose={onClose} size="xl" title={student?.name ?? ''} description="Every submission in this practical, newest first.">
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/40 p-3">
+        <span className="text-sm font-medium">Practical report</span>
+        <Select value={reportFor} onChange={e => setReportFor(e.target.value)} aria-label="Report for" className="w-64">
+          <option value="all">Whole journal (all experiments)</option>
+          {experiments.map(e => <option key={e.id} value={e.id}>Experiment {e.order}: {e.title}</option>)}
+        </Select>
+        <Button variant="outline" size="sm" className="ml-auto" onClick={downloadReport} loading={exporting}><FileDown />{exporting ? 'Preparing PDF…' : 'Download PDF'}</Button>
+      </div>
       {error ? <Alert>{error}</Alert> : !submissions ? <PageLoader /> : submissions.length === 0 ? <p className="text-sm text-muted-foreground">No submissions yet.</p> : (
         <ul className="flex flex-col gap-2">
           {submissions.map(s => (

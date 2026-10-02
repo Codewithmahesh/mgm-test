@@ -23,7 +23,7 @@ export const GET = handler(async () => {
     { $sort: { lastAdded: -1 } },
   ])
   const rooms = new Map((await ExamRoom.find({ _id: { $in: groups.map(g => g._id).filter(Boolean) }, teacher: teacher._id })
-    .select('title code status durationMinutes questionsPerStudent codingQuestions marksPerQuestion negativeMarks codingMarks description').lean()).map(r => [String(r._id), r]))
+    .select('title code status durationMinutes questionsPerStudent tfQuestions codingQuestions marksPerQuestion negativeMarks codingMarks description').lean()).map(r => [String(r._id), r]))
 
   return NextResponse.json({
     groups: groups.map(g => {
@@ -32,7 +32,7 @@ export const GET = handler(async () => {
         key: g._id ? String(g._id) : 'unassigned',
         room: room ? {
           id: String(room._id), title: room.title, code: room.code, status: room.status, description: room.description ?? '',
-          durationMinutes: room.durationMinutes, questionsPerStudent: room.questionsPerStudent, codingQuestions: room.codingQuestions ?? 0,
+          durationMinutes: room.durationMinutes, questionsPerStudent: room.questionsPerStudent, tfQuestions: room.tfQuestions ?? 0, codingQuestions: room.codingQuestions ?? 0,
           marksPerQuestion: room.marksPerQuestion, negativeMarks: room.negativeMarks ?? 0, codingMarks: room.codingMarks ?? 10,
         } : null,
         total: g.total,

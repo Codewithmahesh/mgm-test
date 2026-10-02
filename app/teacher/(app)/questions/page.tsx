@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils'
 
 type Group = {
   key: string
-  room: { id: string; title: string; code: string; status: RoomStatus; description: string; durationMinutes: number; questionsPerStudent: number; codingQuestions: number; marksPerQuestion: number; negativeMarks: number; codingMarks: number } | null
+  room: { id: string; title: string; code: string; status: RoomStatus; description: string; durationMinutes: number; questionsPerStudent: number; tfQuestions?: number; codingQuestions: number; marksPerQuestion: number; negativeMarks: number; codingMarks: number } | null
   total: number
   mcq: number
   tf: number

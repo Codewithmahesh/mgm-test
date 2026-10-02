@@ -18,7 +18,7 @@ type Job = {
   status: 'running' | 'ready' | 'failed'
   background: boolean
   room: { id: string; title: string; code: string } | null
-  requested: { mcq: number; coding: number }
+  requested: { mcq: number; tf?: number; coding: number }
   sets: string[]
   progress: { total: number; done: number; failed: number; running: number; waiting: number }
   nextRetryAt: string | null
@@ -95,7 +95,7 @@ function Generations() {
 }
 
 function JobCard({ job, removing, onReview, onRemove }: { job: Job; removing: boolean; onReview: () => void; onRemove: () => void }) {
-  const requested = `${job.requested.mcq ? `${job.requested.mcq} MCQs` : ''}${job.requested.mcq && job.requested.coding ? ' + ' : ''}${job.requested.coding ? `${job.requested.coding} coding` : ''}`
+  const requested = [job.requested.mcq ? `${job.requested.mcq} MCQs` : '', job.requested.tf ? `${job.requested.tf} True/False` : '', job.requested.coding ? `${job.requested.coding} coding` : ''].filter(Boolean).join(' + ')
   const { total, done, failed } = job.progress
   const percent = total ? Math.round(((done + failed) / total) * 100) : 0
   const waiting = job.status === 'running' && job.nextRetryAt && !job.progress.running

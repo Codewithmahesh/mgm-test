@@ -8,6 +8,7 @@ import { generateJson } from './gemini'
 import { Experiment, LANGUAGES, PracticalSubject, PracticalSubmission, isObjectId } from './models'
 import { normalizeQuestion } from './questions'
 import { sourceFileParts, type SourceFile } from './source-files'
+import { unescapeText } from './utils'
 
 // Practicals: a lab subject (given to classes) with experiments solved in order. An experiment unlocks
 // when every sample test of the one before has passed; hidden tests are graded and shown to the faculty
@@ -41,7 +42,8 @@ export function problemInput(raw: Record<string, unknown>) {
   return { title, text, inputFormat, outputFormat, constraints, samples, hiddenTests, topic, language, starterCode }
 }
 
-const tests = (list: Test[] | null | undefined) => (list ?? []).map(t => ({ input: t.input ?? '', output: t.output ?? '', explanation: t.explanation ?? '' }))
+// Problems saved before escaped line breaks were cleaned up on input are fixed on the way out (and before grading).
+const tests = (list: Test[] | null | undefined) => (list ?? []).map(t => ({ input: unescapeText(t.input ?? ''), output: unescapeText(t.output ?? ''), explanation: unescapeText(t.explanation ?? '') }))
 
 /**
  * A problem for the client. Faculty get the hidden tests; students only learn how many there are.
@@ -50,10 +52,10 @@ export function serializeProblem(p: ProblemDoc, { withHidden }: { withHidden: bo
   return {
     id: String(p._id),
     title: p.title,
-    text: p.text,
-    inputFormat: p.inputFormat ?? '',
-    outputFormat: p.outputFormat ?? '',
-    constraints: p.constraints ?? '',
+    text: unescapeText(p.text),
+    inputFormat: unescapeText(p.inputFormat ?? ''),
+    outputFormat: unescapeText(p.outputFormat ?? ''),
+    constraints: unescapeText(p.constraints ?? ''),
     samples: tests(p.samples),
     ...(withHidden ? { hiddenTests: tests(p.hiddenTests) } : {}),
     hiddenCount: p.hiddenTests?.length ?? 0,
@@ -110,10 +112,16 @@ export async function practicalContext(subject: { _id: Types.ObjectId; title: st
 
 /** Throws unless the student may work on this experiment (it's solved or the next one to solve). */
 export async function assertUnlocked(subjectId: Types.ObjectId, experimentId: Types.ObjectId, studentId: Types.ObjectId) {
+  const status = await experimentStatus(subjectId, experimentId, studentId)
+  if (status === 'locked') throw new HttpError(403, 'Solve the earlier experiments first. Each one unlocks when all its sample tests pass.')
+  return status
+}
+
+/** Whether this experiment is solved, open (the next one to solve) or locked for the student. Locked ones can be read, not solved. */
+export async function experimentStatus(subjectId: Types.ObjectId, experimentId: Types.ObjectId, studentId: Types.ObjectId) {
   const experiments = await Experiment.find({ subject: subjectId }).select('_id order title').sort({ order: 1 }).lean()
   const level = levels(experiments, await solvedExperiments(subjectId, studentId)).find(l => String(l.experiment._id) === String(experimentId))
   if (!level) throw new HttpError(404, 'Experiment not found.')
-  if (level.status === 'locked') throw new HttpError(403, 'Solve the earlier experiments first. Each one unlocks when all its sample tests pass.')
   return level.status
 }
 
@@ -202,6 +210,14 @@ export async function generateProblem({ topic, description, level = 'medium', co
   if (!problem || !problem.samples.length) throw new HttpError(502, 'The AI did not return a usable problem. Please try again.')
   const { title, text, inputFormat, outputFormat, constraints, samples, hiddenTests, language, starterCode } = problem
   return { title, text, inputFormat, outputFormat, constraints, samples, hiddenTests, topic: problem.topic || topic, language, starterCode }
+}
+
+/** The AI writes an experiment from a topic and instructions and adds it as the practical's last one. */
+export async function addGeneratedExperiment(subject: { _id: Types.ObjectId; title: string; code?: string | null; description?: string | null }, teacherId: Types.ObjectId, { topic, description, level }: { topic: string; description: string; level: ProblemLevel }) {
+  const ctx = await practicalContext(subject)
+  const problem = await generateProblem({ topic, description, level, context: ctx, avoid: ctx.experiments.map(e => e.title) })
+  const last = await Experiment.findOne({ subject: subject._id }).sort({ order: -1 }).select('order').lean()
+  return Experiment.create({ ...problem, subject: subject._id, teacher: teacherId, order: (last?.order ?? 0) + 1 })
 }
 
 /**

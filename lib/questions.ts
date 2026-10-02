@@ -1,5 +1,6 @@
 import { normalizeBloom, type BloomLevel } from './bloom'
 import type { QuestionDoc } from './models'
+import { unescapeText } from './utils'
 
 export type Sample = { input: string; output: string; explanation: string }
 
@@ -121,13 +122,16 @@ export function normalizeQuestion(raw: Record<string, unknown>): QuestionInput |
     const samples = tests(raw.samples, 10)
     const hiddenTests = tests(raw.hiddenTests, 10).map(test => ({ ...test, explanation: '' }))
     const points = Number(raw.points)
+    const statement = unescapeText(base.text)
     return {
       ...base,
+      text: statement,
+      explanation: unescapeText(base.explanation),
       type,
-      title: String(raw.title ?? '').trim().slice(0, 150) || text.split(/[.\n]/)[0].slice(0, 80),
-      inputFormat: String(raw.inputFormat ?? '').slice(0, 5000),
-      outputFormat: String(raw.outputFormat ?? '').slice(0, 5000),
-      constraints: String(raw.constraints ?? '').slice(0, 3000),
+      title: String(raw.title ?? '').trim().slice(0, 150) || statement.split(/[.\n]/)[0].slice(0, 80),
+      inputFormat: unescapeText(String(raw.inputFormat ?? '')).slice(0, 5000),
+      outputFormat: unescapeText(String(raw.outputFormat ?? '')).slice(0, 5000),
+      constraints: unescapeText(String(raw.constraints ?? '')).slice(0, 3000),
       samples,
       hiddenTests,
       points: Number.isFinite(points) && points > 0 ? Math.min(points, 1000) : null,
@@ -187,7 +191,7 @@ export function questionsFromCsv(csv: string) {
 function tests(value: unknown, max: number): Sample[] {
   return (Array.isArray(value) ? value : [])
     .map(sample => (sample ?? {}) as Record<string, unknown>)
-    .map(sample => ({ input: String(sample.input ?? '').slice(0, 5000), output: String(sample.output ?? '').slice(0, 5000), explanation: String(sample.explanation ?? '').slice(0, 2000) }))
+    .map(sample => ({ input: unescapeText(String(sample.input ?? '')).slice(0, 5000), output: unescapeText(String(sample.output ?? '')).slice(0, 5000), explanation: unescapeText(String(sample.explanation ?? '')).slice(0, 2000) }))
     .filter(sample => sample.input.trim() || sample.output.trim())
     .slice(0, max)
 }

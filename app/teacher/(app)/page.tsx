@@ -10,7 +10,7 @@ import { useTeacher } from '@/components/role-context'
 import { buttonVariants } from '@/components/ui/button'
 import { Card, CardHeader, EmptyState, PageLoader, Progress } from '@/components/ui/card'
 import { Alert } from '@/components/ui/form'
-import { api, errorMessage, relativeTime, type Room } from '@/lib/api'
+import { api, errorMessage, paperSummary, relativeTime, type Room } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 type Dashboard = {
@@ -38,7 +38,7 @@ export default function TeacherDashboard() {
     const rooms = data.rooms
     const live = rooms.filter(r => r.status === 'open')
     const flagged = rooms.reduce((sum, r) => sum + (r.flagged ?? 0), 0)
-    const notReady = rooms.filter(r => r.status !== 'closed' && (r.mcqPoolSize < r.questionsPerStudent || r.codingPoolSize < r.codingQuestions || r.poolSize === 0))
+    const notReady = rooms.filter(r => r.status !== 'closed' && (r.mcqPoolSize < r.questionsPerStudent || r.tfPoolSize < r.tfQuestions || r.codingPoolSize < r.codingQuestions || r.poolSize === 0))
     const drafts = rooms.filter(r => r.status === 'draft')
     const chart = rooms.filter(r => r.averagePercent != null && r.submitted > 0).slice(0, 10).reverse()
       .map(r => ({ label: r.title.length > 18 ? `${r.title.slice(0, 17)}…` : r.title, value: r.averagePercent ?? 0, detail: `${r.submitted} submitted` }))
@@ -164,7 +164,7 @@ export default function TeacherDashboard() {
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">Updated {relativeTime(room.updatedAt)}{room.flagged > 0 && <span className="inline-flex items-center gap-1 font-medium text-danger"><ShieldAlert className="size-3" />{room.flagged} flagged</span>}</div>
                       </td>
                       <td><CopyCode code={room.code} /></td>
-                      <td className="text-[13px] text-muted-foreground">{room.questionsPerStudent} MCQ{room.codingQuestions ? ` + ${room.codingQuestions} coding` : ''}<div>{room.durationMinutes} min</div></td>
+                      <td className="text-[13px] text-muted-foreground">{paperSummary(room)}<div>{room.durationMinutes} min</div></td>
                       <td>
                         <div className="flex items-center gap-2"><Progress value={room.joined ? (room.submitted / room.joined) * 100 : 0} className="flex-1" tone={room.status === 'open' ? 'blue' : 'green'} /><span className="w-12 text-right text-xs tabular-nums text-muted-foreground">{room.submitted}/{room.joined}</span></div>
                         {room.averagePercent != null && <div className="mt-1 text-xs text-muted-foreground">Avg {room.averagePercent}%</div>}

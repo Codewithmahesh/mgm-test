@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { PageLoader } from '@/components/ui/card'
 import { Alert, Field, Input } from '@/components/ui/form'
 import { Dialog, Menu, MenuItem, Tabs, useFeedback } from '@/components/ui/overlay'
-import { api, downloadFile, errorMessage, formatDate, type BankQuestion, type Room } from '@/lib/api'
+import { api, downloadFile, errorMessage, formatDate, paperSummary, type BankQuestion, type Room } from '@/lib/api'
 import { useLatestRequest } from '@/lib/use-latest'
 
 type Tab = 'overview' | 'questions' | 'participants' | 'leaderboard' | 'settings'
@@ -96,7 +96,7 @@ function RoomView({ id }: { id: string }) {
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-muted-foreground">
               <span className="flex items-center gap-2">Code <CopyCode code={room.code} /></span>
               <span className="flex items-center gap-1.5"><Clock3 className="size-3.5" />{room.durationMinutes} min</span>
-              <span>{room.questionsPerStudent} MCQ{room.codingQuestions ? ` + ${room.codingQuestions} coding` : ''} per student</span>
+              <span>{paperSummary(room)} per student</span>
               {room.description && <span className="truncate">{room.description}</span>}
             </div>
           </div>
