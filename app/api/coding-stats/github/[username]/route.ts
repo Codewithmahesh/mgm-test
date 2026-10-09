@@ -5,6 +5,9 @@ import { checkGithubUsername, getGithub } from '@/lib/coding-stats'
 /** Lookups per signed-in user per minute; each one costs GitHub API calls from the server's shared quota. */
 const LOOKUPS_PER_MINUTE = 20
 
+/** A hung lookup is cut off by the host instead of holding the app's request open. */
+export const maxDuration = 25
+
 type Context = { params: Promise<{ username: string }> }
 
 /** GET /api/coding-stats/github/:username — a GitHub profile and its public repos (mobile JEMS screens). */

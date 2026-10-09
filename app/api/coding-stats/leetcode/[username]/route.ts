@@ -5,6 +5,9 @@ import { checkLeetcodeUsername, getLeetcode } from '@/lib/coding-stats'
 /** Lookups per signed-in user per minute (shared with the GitHub lookup). */
 const LOOKUPS_PER_MINUTE = 20
 
+/** A hung lookup is cut off by the host instead of holding the app's request open. */
+export const maxDuration = 25
+
 type Context = { params: Promise<{ username: string }> }
 
 /** GET /api/coding-stats/leetcode/:username — LeetCode ranking and solved counts (mobile JEMS screens). */
